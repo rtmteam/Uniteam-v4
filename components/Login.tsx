@@ -95,7 +95,7 @@ export default function Login({
       role: 'employee',
       deviceId: deviceId, // Legacy
       deviceIds: [deviceId], // New
-      allowedDeviceCount: 1, // Default
+      allowedDeviceCount: 2, // Default
       jobTitle: selectedJob,
       defaultBranchId: branchNameForSheet,
       registrationDate: new Date().toISOString()
