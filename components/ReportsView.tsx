@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { FileSpreadsheet, Download, LogIn, Loader2, Table, Calendar as CalendarIcon, MapPin, User as UserIcon, Briefcase, Filter, RefreshCw, ChevronRight, ChevronLeft, X, Link as LinkIcon, AlertCircle, Check, ShieldCheck, ChevronDown, Search } from 'lucide-react';
+import { FileSpreadsheet, Download, LogIn, Loader2, Table, Calendar as CalendarIcon, MapPin, User as UserIcon, Briefcase, Filter, RefreshCw, ChevronRight, ChevronLeft, X, Link as LinkIcon, AlertCircle, Check, ShieldCheck, ChevronDown, Search, Eye, EyeOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { AppConfig } from '../types';
 
@@ -116,6 +116,7 @@ export default function ReportsView({ syncUrl: initialSyncUrl, adminConfig, onUp
   const [localSyncUrl, setLocalSyncUrl] = useState(initialSyncUrl || localStorage.getItem('attendance_temp_sync_url') || '');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdminLogin, setIsAdminLogin] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -758,7 +759,21 @@ export default function ReportsView({ syncUrl: initialSyncUrl, adminConfig, onUp
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-white mr-2 uppercase tracking-widest">كلمة المرور</label>
-              <input type="password" className="w-full bg-slate-900 border border-slate-700 text-white px-5 py-3.5 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all shadow-inner" value={password} onChange={e => setPassword(e.target.value)} />
+              <div className="relative">
+                <input 
+                  type={showPassword ? "text" : "password"} 
+                  className="w-full bg-slate-900 border border-slate-700 text-white pl-12 pr-5 py-3.5 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all shadow-inner" 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)} 
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
             {error && (
               <div className="p-3 bg-red-900/20 border border-red-500/50 rounded-xl text-red-400 text-[10px] font-bold flex gap-2 items-center">
