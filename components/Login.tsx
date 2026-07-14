@@ -95,7 +95,7 @@ export default function Login({
       role: 'employee',
       deviceId: deviceId, // Legacy
       deviceIds: [deviceId], // New
-      allowedDeviceCount: 2, // Default
+      allowedDeviceCount: 1, // Default
       jobTitle: selectedJob,
       defaultBranchId: branchNameForSheet,
       registrationDate: new Date().toISOString()
@@ -215,12 +215,8 @@ export default function Login({
     const user = adminUsername.trim();
     const pass = adminPassword.trim();
     
-    // 1. Local Check (Hardcoded or Configured)
-    const defaultUser = 'admin';
-    const defaultPass = 'adminAcc';
-
-    const isLocalValid = (user === adminConfig.adminUsername && pass === adminConfig.adminPassword) || 
-                         (user === defaultUser && pass === defaultPass);
+    // 1. Local Check (Configured from single source of truth in App.tsx)
+    const isLocalValid = user === adminConfig.adminUsername && pass === adminConfig.adminPassword;
 
     if (isLocalValid) {
       logAction('تسجيل دخول مسؤول (محلي)', `المسؤول: ${user}`);
