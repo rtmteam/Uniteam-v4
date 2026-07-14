@@ -887,13 +887,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
             <div className="flex gap-4 bg-slate-900/50 p-6 rounded-3xl border border-slate-700">
                <input type="date" className={inputClasses} value={newHoliday} onChange={e => setNewHoliday(e.target.value)} />
-               <button onClick={() => { if(newHoliday && !config.holidays?.includes(newHoliday)) { const newConfig = {...config, holidays: [...(config.holidays||[]), newHoliday]}; setConfig(newConfig); localStorage.setItem('attendance_config', JSON.stringify(newConfig)); logAction('إضافة إجازة رسمية', `التاريخ: ${newHoliday}`); setNewHoliday(''); } }} className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-8 font-black flex items-center gap-2 transition-all shrink-0"><Plus size={20}/> إضافة إجازة</button>
+               <button onClick={() => { if(newHoliday && !config.holidays?.includes(newHoliday)) { const newConfig = {...config, holidays: [...(config.holidays||[]), newHoliday]}; setConfig(newConfig); const { adminPassword, ...configToSave } = newConfig; localStorage.setItem('attendance_config', JSON.stringify(configToSave)); logAction('إضافة إجازة رسمية', `التاريخ: ${newHoliday}`); setNewHoliday(''); } }} className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-8 font-black flex items-center gap-2 transition-all shrink-0"><Plus size={20}/> إضافة إجازة</button>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                {(config.holidays || []).sort().map(h => (
                  <div key={h} className="p-4 bg-slate-900 rounded-2xl border border-slate-700 flex justify-between items-center hover:border-blue-500 transition-all">
                    <span className="text-xs font-bold font-mono text-blue-400">{h}</span>
-                   <button onClick={() => { if(confirm('حذف الإجازة؟')) { const newConfig = {...config, holidays: config.holidays!.filter(x => x !== h)}; setConfig(newConfig); localStorage.setItem('attendance_config', JSON.stringify(newConfig)); logAction('حذف إجازة رسمية', `التاريخ: ${h}`); } }} className="text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
+                   <button onClick={() => { if(confirm('حذف الإجازة؟')) { const newConfig = {...config, holidays: config.holidays!.filter(x => x !== h)}; setConfig(newConfig); const { adminPassword, ...configToSave } = newConfig; localStorage.setItem('attendance_config', JSON.stringify(configToSave)); logAction('حذف إجازة رسمية', `التاريخ: ${h}`); } }} className="text-slate-600 hover:text-red-500"><Trash2 size={14}/></button>
                  </div>
                ))}
             </div>
@@ -1100,19 +1100,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">كلمة مرور المسؤول (Admin Password)</label>
-                  <input 
-                    type="text" 
-                    className={inputClasses} 
-                    value={config.adminPassword || ''} 
-                    onChange={e => setConfig({...config, adminPassword: e.target.value})} 
-                  />
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-xs text-slate-400 font-bold leading-relaxed">
+                    تواصل مع المسؤل لمعرفة كلمة المرور .
+                  </div>
                 </div>
               </div>
               
               <div className="pt-4 border-t border-slate-700">
                 <button 
                   onClick={() => {
-                    localStorage.setItem('attendance_config', JSON.stringify(config));
+                    const { adminPassword, ...configToSave } = config;
+                    localStorage.setItem('attendance_config', JSON.stringify(configToSave));
                     alert('تم حفظ الإعدادات بنجاح');
                     logAction('تحديث إعدادات النظام', 'تغيير إعدادات سجل المراقبة');
                   }} 
