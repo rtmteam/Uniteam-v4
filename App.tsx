@@ -7,6 +7,12 @@ import UserDashboard from './components/UserDashboard';
 import ReportsView from './components/ReportsView';
 import { ShieldCheck, User as UserIcon, Cloud, CloudOff, RefreshCw, FileSpreadsheet, Home, Download, Share, PlusSquare, X, Wifi } from 'lucide-react';
 
+// ==========================================
+// المصدر الرئيسي الوحيد لكلمة مرور المسؤول (Admin Password)
+// يمكنك تغييرها هنا مباشرة وسيتم تحديثها تلقائياً في كل التطبيق
+const ADMIN_PASSWORD_SSOT = 'adminAcc';
+// ==========================================
+
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -33,9 +39,18 @@ const App: React.FC = () => {
       syncUrl: '',
       auditLogUrl: '',
       adminUsername: 'admin',
-      adminPassword: 'adminAcc'
+      adminPassword: ADMIN_PASSWORD_SSOT
     };
-    return saved ? { ...defaultConfig, ...JSON.parse(saved) } : defaultConfig;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Always force adminPassword to be the ADMIN_PASSWORD_SSOT from the code, ignoring any saved password
+        return { ...defaultConfig, ...parsed, adminPassword: ADMIN_PASSWORD_SSOT };
+      } catch (e) {
+        return defaultConfig;
+      }
+    }
+    return defaultConfig;
   });
 
   useEffect(() => {
@@ -132,7 +147,8 @@ const App: React.FC = () => {
       setConfig(prev => {
         const updatedConfig = { ...prev, lastUpdated: new Date().toISOString(), syncUrl: url, googleSheetLink: url };
         if (data.holidays) updatedConfig.holidays = data.holidays;
-        localStorage.setItem('attendance_config', JSON.stringify(updatedConfig));
+        const { adminPassword, ...configToSave } = updatedConfig;
+        localStorage.setItem('attendance_config', JSON.stringify(configToSave));
         return updatedConfig;
       });
     } catch (err) {
@@ -225,7 +241,8 @@ const App: React.FC = () => {
                   googleSheetLink: data.googleSheetLink,
                   auditLogUrl: data.auditLogUrl !== undefined ? data.auditLogUrl : prev.auditLogUrl
                 };
-                localStorage.setItem('attendance_config', JSON.stringify(updatedConfig));
+                const { adminPassword, ...configToSave } = updatedConfig;
+                localStorage.setItem('attendance_config', JSON.stringify(configToSave));
                 return updatedConfig;
               });
               syncWithCloud(data.googleSheetLink);
@@ -285,9 +302,10 @@ const App: React.FC = () => {
   };
 
   const handleUpdateConfig = (newCfg: Partial<AppConfig>) => {
-    const cfg = { ...config, ...newCfg };
+    const cfg = { ...config, ...newCfg, adminPassword: ADMIN_PASSWORD_SSOT };
     setConfig(cfg);
-    localStorage.setItem('attendance_config', JSON.stringify(cfg));
+    const { adminPassword, ...configToSave } = cfg;
+    localStorage.setItem('attendance_config', JSON.stringify(configToSave));
   };
 
   // Determine if we should show an install button (Android or iOS web)
