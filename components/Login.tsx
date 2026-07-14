@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { User, AppConfig, Job, Branch } from '../types';
-import { UserPlus, LogIn, ShieldAlert, Briefcase, Loader2, Link as LinkIcon, Smartphone, AlertCircle, WifiOff, MapPin } from 'lucide-react';
+import { UserPlus, LogIn, ShieldAlert, Briefcase, Loader2, Link as LinkIcon, Smartphone, AlertCircle, WifiOff, MapPin, Eye, EyeOff } from 'lucide-react';
 import { getDeviceFingerprint } from '../utils';
 
 interface LoginProps {
@@ -33,6 +33,9 @@ export default function Login({
   const [adminPassword, setAdminPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -319,7 +322,23 @@ export default function Login({
                 <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
               </div>
 
-              <input type="password" placeholder="تعيين كلمة مرور" minLength={6} value={password} onChange={e => setPassword(e.target.value)} className={inputClasses} />
+              <div className="relative">
+                <input 
+                  type={showRegPassword ? "text" : "password"} 
+                  placeholder="تعيين كلمة مرور" 
+                  minLength={6} 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)} 
+                  className={`${inputClasses} pl-12`} 
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowRegPassword(!showRegPassword)}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                >
+                  {showRegPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               
               <button type="submit" disabled={isLoading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all">
                 {isLoading ? <Loader2 className="animate-spin" size={20} /> : <UserPlus size={20} />} 
@@ -331,7 +350,22 @@ export default function Login({
           {mode === 'login' && (
             <form onSubmit={handleEmployeeLogin} className="space-y-4">
               <input type="text" placeholder="الرقم القومي" maxLength={14} value={nationalId} onChange={e => setNationalId(e.target.value.replace(/\D/g, ''))} className={inputClasses} />
-              <input type="password" placeholder="كلمة المرور" value={password} onChange={e => setPassword(e.target.value)} className={inputClasses} />
+              <div className="relative">
+                <input 
+                  type={showLoginPassword ? "text" : "password"} 
+                  placeholder="كلمة المرور" 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)} 
+                  className={`${inputClasses} pl-12`} 
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowLoginPassword(!showLoginPassword)}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                >
+                  {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               <button type="submit" className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all text-sm">
                 <LogIn size={20} /> دخول الموظف
               </button>
@@ -341,7 +375,22 @@ export default function Login({
           {mode === 'admin' && (
             <form onSubmit={handleAdminSubmit} className="space-y-4">
               <input type="text" placeholder="اسم مستخدم المسؤول" value={adminUsername} onChange={e => setAdminUsername(e.target.value)} className={inputClasses} />
-              <input type="password" placeholder="كلمة مرور المسؤول" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} className={inputClasses} />
+              <div className="relative">
+                <input 
+                  type={showAdminPassword ? "text" : "password"} 
+                  placeholder="كلمة مرور المسؤول" 
+                  value={adminPassword} 
+                  onChange={e => setAdminPassword(e.target.value)} 
+                  className={`${inputClasses} pl-12`} 
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPassword(!showAdminPassword)}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                >
+                  {showAdminPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               <button type="submit" className="w-full bg-slate-700 hover:bg-slate-600 text-white font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all border border-slate-500">
                 <ShieldAlert size={20} /> دخول لوحة التحكم
               </button>
