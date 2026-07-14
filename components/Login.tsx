@@ -217,7 +217,7 @@ export default function Login({
     
     // 1. Local Check (Hardcoded or Configured)
     const defaultUser = 'admin';
-    const defaultPass = 'B522129';
+    const defaultPass = 'adminAcc';
 
     const isLocalValid = (user === adminConfig.adminUsername && pass === adminConfig.adminPassword) || 
                          (user === defaultUser && pass === defaultPass);
