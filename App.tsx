@@ -33,7 +33,7 @@ const App: React.FC = () => {
       syncUrl: '',
       auditLogUrl: '',
       adminUsername: 'admin',
-      adminPassword: 'B522129'
+      adminPassword: 'adminAcc'
     };
     return saved ? { ...defaultConfig, ...JSON.parse(saved) } : defaultConfig;
   });
