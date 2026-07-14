@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Branch, AttendanceRecord, AppConfig, User, Job, ReportAccount, VisitPlan } from '../types';
-import { MapPin, Table, Trash2, Shield, CloudUpload, Briefcase, RotateCcw, Globe, Users, Plus, FileSpreadsheet, Download, Share2, Smartphone, RefreshCw, Edit2, Check, X, Unlink, Key, Lock, Eye, EyeOff, Clock, Monitor, UserCheck, Calendar, Navigation } from 'lucide-react';
+import { MapPin, Table, Trash2, Shield, CloudUpload, Briefcase, RotateCcw, Globe, Users, Plus, FileSpreadsheet, Download, Share2, Smartphone, RefreshCw, Edit2, Check, X, Unlink, Key, Lock, Eye, EyeOff, Clock, Monitor, UserCheck, Calendar, Navigation, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface AdminDashboardProps {
@@ -56,6 +56,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   
   // State for Branch Bulk Delete
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set());
+  const [draggedBranchIndex, setDraggedBranchIndex] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const jobFileInputRef = useRef<HTMLInputElement>(null);
@@ -386,6 +387,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const changeBranchOrder = (currentIndex: number, targetIndex: number) => {
+    if (targetIndex < 0 || targetIndex >= branches.length || currentIndex === targetIndex) return;
+    const updatedBranches = [...branches];
+    const [removed] = updatedBranches.splice(currentIndex, 1);
+    updatedBranches.splice(targetIndex, 0, removed);
+    setBranches(updatedBranches);
+    logAction('تعديل ترتيب الفروع كلياً', `تم نقل فرع ${removed.name} من الترتيب ${currentIndex + 1} إلى الترتيب ${targetIndex + 1}`);
+  };
+
   return (
     <div className="space-y-6">
       <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={(e) => handleExcelImport(e, 'branches')} />
@@ -534,99 +544,144 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                              <>
                                <button onClick={() => { 
                                  setEditingUserId(user.id); 
-                                 setEditUserData({
-                                   ...user,
-                                   checkInTime: normalizeToTimeInput(user.checkInTime),
-                                   checkOutTime: normalizeToTimeInput(user.checkOutTime),
-                                   allowedDeviceCount: user.allowedDeviceCount || 1
-                                 }); 
-                               }} className="text-blue-400 hover:bg-blue-900/20 p-1.5 rounded"><Edit2 size={16}/></button>
-                               
-                               {deviceCount > 0 && (
-                                 <button onClick={() => {
-                                   if(confirm('هل أنت متأكد من فك ارتباط جميع الأجهزة لهذا الموظف؟')) {
-                                     setAllUsers(allUsers.map(u => u.id === user.id ? {...u, deviceId: "", deviceIds: []} : u));
-                                     logAction('فك ارتباط أجهزة', `الموظف: ${user.fullName}`);
-                                   }
-                                 }} className="text-orange-400 hover:bg-orange-900/20 p-1.5 rounded" title="فك ارتباط جميع الأجهزة"><Unlink size={16}/></button>
-                               )}
-                               
-                               <button onClick={() => { 
-                                 if(confirm('حذف الموظف؟')) {
-                                   setAllUsers(allUsers.filter(u => u.id !== user.id));
-                                   logAction('حذف موظف', `الموظف: ${user.fullName}`);
-                                 }
-                               }} className="text-slate-500 hover:text-red-400 p-1.5"><Trash2 size={16}/></button>
-                             </>
-                           )}
+                                  setEditUserData({
+                                    ...user,
+                                    checkInTime: normalizeToTimeInput(user.checkInTime),
+                                    checkOutTime: normalizeToTimeInput(user.checkOutTime),
+                                    allowedDeviceCount: user.allowedDeviceCount || 1
+                                  }); 
+                                }} className="text-blue-400 hover:bg-blue-900/20 p-1.5 rounded"><Edit2 size={16}/></button>
+                                
+                                {deviceCount > 0 && (
+                                  <button onClick={() => {
+                                    if(confirm('هل أنت متأكد من فك ارتباط جميع الأجهزة لهذا الموظف؟')) {
+                                      setAllUsers(allUsers.map(u => u.id === user.id ? {...u, deviceId: "", deviceIds: []} : u));
+                                      logAction('فك ارتباط أجهزة', `الموظف: ${user.fullName}`);
+                                    }
+                                  }} className="text-orange-400 hover:bg-orange-900/20 p-1.5 rounded" title="فك ارتباط جميع الأجهزة"><Unlink size={16}/></button>
+                                )}
+                                
+                                <button onClick={() => { 
+                                  if(confirm('حذف الموظف؟')) {
+                                    setAllUsers(allUsers.filter(u => u.id !== user.id));
+                                    logAction('حذف موظف', `الموظف: ${user.fullName}`);
+                                  }
+                                }} className="text-slate-500 hover:text-red-400 p-1.5"><Trash2 size={16}/></button>
+                              </>
+                            )}
+                         </div>
+                      </td>
+                    </tr>
+                   );
+                   })}</tbody>
+                </table>
+              </div>
+            </div>
+         )}
+         {activeTab === 'branches' && (
+           <div className="space-y-6">
+             <div className="flex justify-between items-center bg-slate-900/50 p-4 rounded-2xl border border-slate-700">
+               <div className="flex items-center gap-3">
+                 <MapPin size={20} className="text-blue-400" />
+                 <h3 className="text-sm font-black text-white uppercase tracking-tighter">إدارة الفروع والمواقع</h3>
+               </div>
+               <div className="flex gap-2">
+                 <button onClick={() => { downloadTemplate('branches'); logAction('تحميل نموذج', 'نموذج استيراد الفروع'); }} className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-[10px] font-black"><Download size={14}/> نموذج استيراد</button>
+                 <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-xl text-[10px] font-black"><FileSpreadsheet size={14}/> استيراد فروع</button>
+                 <button onClick={() => pushToCloud('branches')} disabled={isPushing} className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-xl text-[10px] font-black shadow-lg transition-all">
+                   {isPushing ? <RotateCcw size={14} className="animate-spin" /> : <CloudUpload size={14} />} حفظ في السحابة
+                 </button>
+               </div>
+             </div>
+             <div className="flex justify-between items-center">
+                <h4 className="text-sm font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">الفروع الحالية</h4>
+                <div className="flex gap-2">
+                   {selectedBranches.size > 0 && (
+                      <button onClick={deleteSelectedBranches} className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-black animate-pulse">
+                         <Trash2 size={14}/> حذف المحدد ({selectedBranches.size})
+                      </button>
+                   )}
+                </div>
+             </div>
+             <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-700 grid grid-cols-1 md:grid-cols-5 gap-4">
+                <input type="text" placeholder="الاسم" className={inputClasses} value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} />
+                <input type="number" placeholder="Lat" className={inputClasses} value={newBranch.latitude || ''} onChange={e => setNewBranch({...newBranch, latitude: parseFloat(e.target.value)})} />
+                <input type="number" placeholder="Lng" className={inputClasses} value={newBranch.longitude || ''} onChange={e => setNewBranch({...newBranch, longitude: parseFloat(e.target.value)})} />
+                <input type="number" placeholder="المسافة" className={inputClasses} value={newBranch.radius || ''} onChange={e => setNewBranch({...newBranch, radius: parseInt(e.target.value)})} />
+                <button onClick={() => {
+                  if (newBranch.name) {
+                    setBranches([...branches, { ...newBranch, id: Math.random().toString(36).substr(2, 9), radius: newBranch.radius || 100 } as Branch]);
+                    logAction('إضافة فرع جديد', `الفرع: ${newBranch.name}`);
+                    setNewBranch({ name: '', latitude: 0, longitude: 0, radius: 100 });
+                  }
+                }} className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black py-3 flex items-center justify-center gap-2 transition-all">
+                  <Plus size={18}/> إضافة
+                </button>
+             </div>
+             <div className="overflow-x-auto">
+               <table className="w-full text-right min-w-[700px]">
+                 <thead><tr className="border-b border-slate-700 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                   <th className="py-4 px-2 w-10 text-center"><input type="checkbox" checked={selectedBranches.size === branches.length && branches.length > 0} onChange={toggleSelectAllBranches} className="accent-blue-600 cursor-pointer" /></th>
+                   <th className="py-4 px-2 text-center w-28">الترتيب</th>
+                   <th className="py-4 px-2">اسم الفرع</th><th className="py-4 px-2">إحداثيات (Lat, Lng)</th><th className="py-4 px-2 text-center">النطاق</th><th className="py-4 px-2 text-center">إجراءات</th></tr></thead>
+                                   <tbody>{branches.map((b, idx) => (
+                    <tr 
+                      key={b.id} 
+                      draggable={editingBranchId !== b.id}
+                      onDragStart={(e) => {
+                        setDraggedBranchIndex(idx);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedBranchIndex !== null && draggedBranchIndex !== idx) {
+                          changeBranchOrder(draggedBranchIndex, idx);
+                        }
+                        setDraggedBranchIndex(null);
+                      }}
+                      onDragEnd={() => setDraggedBranchIndex(null)}
+                      className={`border-b border-slate-700/50 hover:bg-slate-900/30 transition-colors ${draggedBranchIndex === idx ? 'opacity-40 bg-blue-900/20' : ''}`}
+                    >
+                      <td className="py-4 px-2 text-center"><input type="checkbox" checked={selectedBranches.has(b.id)} onChange={() => toggleSelectBranch(b.id)} className="accent-blue-600 cursor-pointer" /></td>
+                      <td className="py-4 px-2 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <div 
+                            title="اسحب لتغيير الترتيب" 
+                            className="cursor-grab active:cursor-grabbing text-slate-500 hover:text-blue-400 p-1 rounded hover:bg-slate-800 transition-colors"
+                          >
+                            <GripVertical size={14} />
+                          </div>
+                          <select 
+                            value={idx} 
+                            onChange={(e) => {
+                              const targetIdx = parseInt(e.target.value);
+                              changeBranchOrder(idx, targetIdx);
+                            }}
+                            className="bg-slate-900 border border-slate-700 hover:border-blue-500 rounded px-1.5 py-1 text-[11px] text-blue-400 font-bold outline-none cursor-pointer text-center"
+                            title="اختر الترتيب المباشر"
+                          >
+                            {branches.map((_, i) => (
+                              <option key={i} value={i} className="bg-slate-950 text-white font-mono">
+                                {i + 1}
+                              </option>
+                            ))}
+                          </select>
                         </div>
-                     </td>
-                   </tr>
-                  );
-                  })}</tbody>
+                      </td>
+                      <td className="py-4 px-2 font-black">{editingBranchId === b.id ? (<input className="bg-slate-900 border border-blue-500 rounded px-3 py-1.5 text-xs w-full outline-none text-white" value={editBranchData.name || ''} onChange={e => setEditBranchData({...editBranchData, name: e.target.value})} />) : (<span className="text-emerald-400">{b.name}</span>)}</td>
+                      <td className="py-4 px-2">{editingBranchId === b.id ? (<div className="flex gap-1"><input type="number" step="0.000001" className="bg-slate-900 border border-blue-500 rounded px-2 py-1.5 text-[10px] w-full font-mono outline-none text-white" placeholder="Lat" value={editBranchData.latitude || ''} onChange={e => setEditBranchData({...editBranchData, latitude: parseFloat(e.target.value)})} /><input type="number" step="0.000001" className="bg-slate-900 border border-blue-500 rounded px-2 py-1.5 text-[10px] w-full font-mono outline-none text-white" placeholder="Lng" value={editBranchData.longitude || ''} onChange={e => setEditBranchData({...editBranchData, longitude: parseFloat(e.target.value)})} /></div>) : (<span className="text-[10px] text-slate-400 font-mono">{b.latitude.toFixed(6)}, {b.longitude.toFixed(6)}</span>)}</td>
+                      <td className="py-4 px-2 text-center">{editingBranchId === b.id ? (<input type="number" className="bg-slate-900 border border-blue-500 rounded px-2 py-1.5 text-xs w-20 text-center outline-none text-white" value={editBranchData.radius || ''} onChange={e => setEditBranchData({...editBranchData, radius: parseInt(e.target.value)})} />) : (<span className="text-blue-400 font-black text-xs">{b.radius}م</span>)}</td>
+                      <td className="py-4 px-2 text-center"><div className="flex justify-center gap-2">{editingBranchId === b.id ? (<><button onClick={() => saveEditBranch(b.id)} className="text-green-500 hover:bg-green-500/10 p-2 rounded-lg transition-all"><Check size={18}/></button><button onClick={() => setEditingBranchId(null)} className="text-red-500 hover:bg-red-500/10 p-2 rounded-lg transition-all"><X size={18}/></button></>) : (<><button onClick={() => { setEditingBranchId(b.id); setEditBranchData(b); }} className="text-blue-400 hover:bg-blue-400/10 p-2 rounded-lg transition-all" title="تعديل"><Edit2 size={16}/></button><button onClick={() => { if(confirm('حذف الفرع؟')) { setBranches(branches.filter(x => x.id !== b.id)); logAction('حذف فرع', `الفرع: ${b.name}`); } }} className="text-slate-500 hover:text-red-400 hover:bg-red-400/10 p-2 rounded-lg transition-all" title="حذف"><Trash2 size={16}/></button></>)}</div></td>
+                    </tr>
+                  ))}</tbody>
                </table>
              </div>
-           </div>
-        )}
-        {activeTab === 'branches' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center bg-slate-900/50 p-4 rounded-2xl border border-slate-700">
-              <div className="flex items-center gap-3">
-                <MapPin size={20} className="text-blue-400" />
-                <h3 className="text-sm font-black text-white uppercase tracking-tighter">إدارة الفروع والمواقع</h3>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => { downloadTemplate('branches'); logAction('تحميل نموذج', 'نموذج استيراد الفروع'); }} className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-[10px] font-black"><Download size={14}/> نموذج استيراد</button>
-                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-xl text-[10px] font-black"><FileSpreadsheet size={14}/> استيراد فروع</button>
-                <button onClick={() => pushToCloud('branches')} disabled={isPushing} className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-xl text-[10px] font-black shadow-lg transition-all">
-                  {isPushing ? <RotateCcw size={14} className="animate-spin" /> : <CloudUpload size={14} />} حفظ في السحابة
-                </button>
-              </div>
-            </div>
-            <div className="flex justify-between items-center">
-               <h4 className="text-sm font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">الفروع الحالية</h4>
-               <div className="flex gap-2">
-                  {selectedBranches.size > 0 && (
-                     <button onClick={deleteSelectedBranches} className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-black animate-pulse">
-                        <Trash2 size={14}/> حذف المحدد ({selectedBranches.size})
-                     </button>
-                  )}
-               </div>
-            </div>
-            <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-700 grid grid-cols-1 md:grid-cols-5 gap-4">
-               <input type="text" placeholder="الاسم" className={inputClasses} value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} />
-               <input type="number" placeholder="Lat" className={inputClasses} value={newBranch.latitude || ''} onChange={e => setNewBranch({...newBranch, latitude: parseFloat(e.target.value)})} />
-               <input type="number" placeholder="Lng" className={inputClasses} value={newBranch.longitude || ''} onChange={e => setNewBranch({...newBranch, longitude: parseFloat(e.target.value)})} />
-               <input type="number" placeholder="المسافة" className={inputClasses} value={newBranch.radius || ''} onChange={e => setNewBranch({...newBranch, radius: parseInt(e.target.value)})} />
-               <button onClick={() => {
-                 if (newBranch.name) {
-                   setBranches([...branches, { ...newBranch, id: Math.random().toString(36).substr(2, 9), radius: newBranch.radius || 100 } as Branch]);
-                   logAction('إضافة فرع جديد', `الفرع: ${newBranch.name}`);
-                   setNewBranch({ name: '', latitude: 0, longitude: 0, radius: 100 });
-                 }
-               }} className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black py-3 flex items-center justify-center gap-2 transition-all">
-                 <Plus size={18}/> إضافة
-               </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-right min-w-[700px]">
-                <thead><tr className="border-b border-slate-700 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                  <th className="py-4 px-2 w-10 text-center"><input type="checkbox" checked={selectedBranches.size === branches.length && branches.length > 0} onChange={toggleSelectAllBranches} className="accent-blue-600 cursor-pointer" /></th>
-                  <th className="py-4 px-2">اسم الفرع</th><th className="py-4 px-2">إحداثيات (Lat, Lng)</th><th className="py-4 px-2 text-center">النطاق</th><th className="py-4 px-2 text-center">إجراءات</th></tr></thead>
-                <tbody>{branches.map(b => (
-                  <tr key={b.id} className="border-b border-slate-700/50 hover:bg-slate-900/30 transition-colors">
-                    <td className="py-4 px-2 text-center"><input type="checkbox" checked={selectedBranches.has(b.id)} onChange={() => toggleSelectBranch(b.id)} className="accent-blue-600 cursor-pointer" /></td>
-                    <td className="py-4 px-2 font-black">{editingBranchId === b.id ? (<input className="bg-slate-900 border border-blue-500 rounded px-3 py-1.5 text-xs w-full outline-none text-white" value={editBranchData.name || ''} onChange={e => setEditBranchData({...editBranchData, name: e.target.value})} />) : (<span className="text-emerald-400">{b.name}</span>)}</td>
-                    <td className="py-4 px-2">{editingBranchId === b.id ? (<div className="flex gap-1"><input type="number" step="0.000001" className="bg-slate-900 border border-blue-500 rounded px-2 py-1.5 text-[10px] w-full font-mono outline-none text-white" placeholder="Lat" value={editBranchData.latitude || ''} onChange={e => setEditBranchData({...editBranchData, latitude: parseFloat(e.target.value)})} /><input type="number" step="0.000001" className="bg-slate-900 border border-blue-500 rounded px-2 py-1.5 text-[10px] w-full font-mono outline-none text-white" placeholder="Lng" value={editBranchData.longitude || ''} onChange={e => setEditBranchData({...editBranchData, longitude: parseFloat(e.target.value)})} /></div>) : (<span className="text-[10px] text-slate-400 font-mono">{b.latitude.toFixed(6)}, {b.longitude.toFixed(6)}</span>)}</td>
-                    <td className="py-4 px-2 text-center">{editingBranchId === b.id ? (<input type="number" className="bg-slate-900 border border-blue-500 rounded px-2 py-1.5 text-xs w-20 text-center outline-none text-white" value={editBranchData.radius || ''} onChange={e => setEditBranchData({...editBranchData, radius: parseInt(e.target.value)})} />) : (<span className="text-blue-400 font-black text-xs">{b.radius}م</span>)}</td>
-                    <td className="py-4 px-2 text-center"><div className="flex justify-center gap-2">{editingBranchId === b.id ? (<><button onClick={() => saveEditBranch(b.id)} className="text-green-500 hover:bg-green-500/10 p-2 rounded-lg transition-all"><Check size={18}/></button><button onClick={() => setEditingBranchId(null)} className="text-red-500 hover:bg-red-500/10 p-2 rounded-lg transition-all"><X size={18}/></button></>) : (<><button onClick={() => { setEditingBranchId(b.id); setEditBranchData(b); }} className="text-blue-400 hover:bg-blue-400/10 p-2 rounded-lg transition-all"><Edit2 size={16}/></button><button onClick={() => { if(confirm('حذف الفرع؟')) { setBranches(branches.filter(x => x.id !== b.id)); logAction('حذف فرع', `الفرع: ${b.name}`); } }} className="text-slate-500 hover:text-red-400 hover:bg-red-400/10 p-2 rounded-lg transition-all"><Trash2 size={16}/></button></>)}</div></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
           </div>
-        )}
-        {activeTab === 'jobs' && (
+         )}
+         {activeTab === 'jobs' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center bg-slate-900/50 p-4 rounded-2xl border border-slate-700">
               <div className="flex items-center gap-3">
