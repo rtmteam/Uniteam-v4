@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Branch, AttendanceRecord, VisitPlan } from '../types';
 import { MapPin, Clock, CheckCircle, AlertCircle, RotateCcw, Cloud, FileText, Navigation, Calendar } from 'lucide-react';
-import { calculateDistance, getDeviceFingerprint } from '../utils';
+import { calculateDistance, getDeviceFingerprint, getEgyptTime, getRealNetworkTime } from '../utils';
 
 interface UserDashboardProps {
   user: User;
@@ -48,11 +48,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'none', msg: string }>({ type: 'none', msg: '' });
   const [reasonText, setReasonText] = useState('');
 
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentTime, setCurrentTime] = useState(getEgyptTime());
 
   // Clock Interval
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    const timer = setInterval(() => setCurrentTime(getEgyptTime()), 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -99,7 +99,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
       try {
         const d = new Date(timeStr);
         if (!isNaN(d.getTime())) {
-          return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+          return d.toLocaleTimeString('en-US', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hour12: true });
         }
       } catch(e) {}
     }
@@ -117,7 +117,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
     let schedH = 9, schedM = 0;
 
     if (scheduledTimeStr.includes('GMT') || scheduledTimeStr.includes('1899')) {
-       const d = new Date(scheduledTimeStr);
+       const d = getEgyptTime(scheduledTimeStr);
        if (!isNaN(d.getTime())) {
           schedH = d.getHours();
           schedM = d.getMinutes();
@@ -128,7 +128,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
        schedM = parts[1] || 0;
     }
 
-    const now = new Date();
+    const now = getEgyptTime();
     const schedDate = new Date(now);
     schedDate.setHours(schedH, schedM, 0, 0);
 
@@ -249,7 +249,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
         branchId: branch.id, 
         branchName: branch.name, 
         type: type,
-        timestamp: new Date().toISOString(), 
+        timestamp: getRealNetworkTime().toISOString(), 
         latitude: lat, 
         longitude: lng,
         reason: reasonText.trim(), 
@@ -377,7 +377,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
 
   // Find today's plan for this user
   const getTodayStr = () => {
-    const d = new Date();
+    const d = getEgyptTime();
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -394,7 +394,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
 
     // If planDate is in long format, normalize it
     if (planDate.includes('GMT') || planDate.length > 15) {
-      const d = new Date(planDate);
+      const d = getEgyptTime(planDate);
       if (!isNaN(d.getTime())) {
         const year = d.getFullYear();
         const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -407,7 +407,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
     if (planDate === todayStr) return true;
 
     // Flexible match (contains today's components)
-    const d = new Date();
+    const d = getEgyptTime();
     const y = d.getFullYear().toString();
     const m = (d.getMonth() + 1).toString().padStart(2, '0');
     const day = d.getDate().toString().padStart(2, '0');
@@ -427,7 +427,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
 
   // Find tomorrow's plan for this user
   const getTomorrowStr = () => {
-    const d = new Date();
+    const d = getEgyptTime();
     d.setDate(d.getDate() + 1);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -444,7 +444,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
     if (!planDate) return false;
 
     if (planDate.includes('GMT') || planDate.length > 15) {
-      const d = new Date(planDate);
+      const d = getEgyptTime(planDate);
       if (!isNaN(d.getTime())) {
         const year = d.getFullYear();
         const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -455,7 +455,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
 
     if (planDate === tomorrowStr) return true;
 
-    const d = new Date();
+    const d = getEgyptTime();
     d.setDate(d.getDate() + 1);
     const y = d.getFullYear().toString();
     const m = (d.getMonth() + 1).toString().padStart(2, '0');
