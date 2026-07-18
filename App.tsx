@@ -6,6 +6,7 @@ import AdminDashboard from './components/AdminDashboard';
 import UserDashboard from './components/UserDashboard';
 import ReportsView from './components/ReportsView';
 import { ShieldCheck, User as UserIcon, Cloud, CloudOff, RefreshCw, FileSpreadsheet, Home, Download, Share, PlusSquare, X, Wifi } from 'lucide-react';
+import { syncTimeWithServer } from './utils';
 
 // ==========================================
 // المصدر الرئيسي الوحيد لكلمة مرور المسؤول (Admin Password)
@@ -106,6 +107,9 @@ const App: React.FC = () => {
     setIsSyncing(true);
     setSyncError(false);
     try {
+      // مزامنة الوقت بالخلفية لضمان دقة ساعة التطبيق بالتوقيت المصري وحمايته من التلاعب
+      syncTimeWithServer().catch(e => console.warn('Background time sync failed', e));
+
       const fetchUrl = `${url}${url.includes('?') ? '&' : '?'}action=getData&t=${Date.now()}`;
       const response = await fetch(fetchUrl);
       if (!response.ok) throw new Error('فشل الاتصال');
@@ -161,6 +165,9 @@ const App: React.FC = () => {
 
   // Initial Data Load
   useEffect(() => {
+    // مزامنة الوقت فور تشغيل التطبيق
+    syncTimeWithServer().catch(e => console.warn('On-load time sync failed', e));
+
     const savedUser = localStorage.getItem('attendance_current_user');
     const savedBranches = localStorage.getItem('attendance_branches');
     const savedJobs = localStorage.getItem('attendance_jobs');
