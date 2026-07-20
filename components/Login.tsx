@@ -63,6 +63,12 @@ export default function Login({
       logAction('فشل تسجيل مستخدم جديد', 'السبب: كلمة المرور قصيرة جداً');
       return;
     }
+
+    if (password.startsWith('0')) {
+      setError('كلمة المرور لا يمكن أن تبدأ بالرقم صفر (0) أو تكون أصفاراً فقط .');
+      logAction('فشل تسجيل مستخدم جديد', 'السبب: كلمة المرور تبدأ بصفر');
+      return;
+    }
     
     const deviceId = getDeviceFingerprint();
 
