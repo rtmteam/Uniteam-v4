@@ -30,11 +30,36 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   visitPlans
 }) => {
   const findInitialBranchId = () => {
-    if (!user.defaultBranchId) return '';
-    const branchById = branches.find(b => b.id === user.defaultBranchId);
+    const rawDefault = user.defaultBranchId || (user as any).defaultBranch || (user as any).branch || (user as any).branchName || (user as any).defaultBranchName;
+    if (!rawDefault) {
+      if (branches.length === 1) return branches[0].id;
+      return '';
+    }
+
+    const targetStr = String(rawDefault).trim();
+    if (!targetStr) {
+      if (branches.length === 1) return branches[0].id;
+      return '';
+    }
+
+    // Direct ID match (trimmed & case-insensitive)
+    const branchById = branches.find(b => String(b.id).trim().toLowerCase() === targetStr.toLowerCase());
     if (branchById) return branchById.id;
-    const branchByName = branches.find(b => b.name === user.defaultBranchId);
+
+    // Direct Name match (trimmed & case-insensitive)
+    const branchByName = branches.find(b => String(b.name).trim().toLowerCase() === targetStr.toLowerCase());
     if (branchByName) return branchByName.id;
+
+    // Flexible substring match (e.g., "المعادي" vs "فرع المعادي" or vice versa)
+    const targetLower = targetStr.toLowerCase();
+    const branchFlexible = branches.find(b => {
+      const bName = String(b.name).trim().toLowerCase();
+      const bId = String(b.id).trim().toLowerCase();
+      return bName === targetLower || bName.includes(targetLower) || targetLower.includes(bName) || bId.includes(targetLower);
+    });
+    if (branchFlexible) return branchFlexible.id;
+
+    if (branches.length > 0) return branches[0].id;
     return '';
   };
 
@@ -88,10 +113,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!selectedBranchId && user.defaultBranchId) {
-      setSelectedBranchId(findInitialBranchId());
+    const initId = findInitialBranchId();
+    if (initId && (!selectedBranchId || !branches.some(b => b.id === selectedBranchId))) {
+      setSelectedBranchId(initId);
     }
-  }, [branches, user.defaultBranchId]);
+  }, [branches, user.defaultBranchId, (user as any).defaultBranch, (user as any).branch]);
 
   const formatTimeDisplay = (timeStr: string | undefined) => {
     if (!timeStr) return '--:--';
@@ -479,13 +505,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-6">
         <div className="bg-slate-800 rounded-3xl shadow-xl border border-slate-700 p-8 text-white relative overflow-hidden">
-          <div className="absolute left-2 top-6 flex flex-col items-end gap-2">
-            <button onClick={() => { onRefresh(); logAction('تحديث البيانات', 'مزامنة البيانات مع السحابة'); }} disabled={isSyncing} className="p-2.5 bg-slate-900 rounded-xl border border-slate-700 text-slate-400 hover:text-blue-400 transition-all shadow-lg active:scale-95">
-              <RotateCcw size={20} className={isSyncing ? 'animate-spin text-blue-400' : ''} />
-            </button>
-            <div className="h-12"></div>
-            {lastUpdated && (<div className="flex items-center gap-1 text-[8px] font-black text-slate-500 bg-slate-900 px-2 py-1 rounded-md border border-slate-800 uppercase"><Cloud size={8} /> Updated: {new Date(lastUpdated).toLocaleTimeString('en-US')}</div>)}
-          </div>
+          {lastUpdated && (
+            <div className="absolute left-4 top-6 flex items-center gap-1 text-[8px] font-black text-slate-500 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 uppercase">
+              <Cloud size={10} /> Updated: {new Date(lastUpdated).toLocaleTimeString('en-US')}
+            </div>
+          )}
           <div className="text-center mb-8 pt-4">
              <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">أهلاً، {user.fullName.split(' ')[0]}</h2>
              <div className="bg-blue-900/30 px-5 py-1.5 rounded-xl text-blue-400 border border-blue-800/40 font-black text-[10px] inline-block uppercase tracking-widest">{user.jobTitle || 'موظف'} | SN: {user.serialNumber || '---'}</div>
@@ -564,7 +588,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
               <div className="relative">
                 <select value={selectedBranchId} onChange={e => setSelectedBranchId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 text-white px-6 py-4 rounded-2xl font-bold outline-none cursor-pointer appearance-none shadow-inner focus:border-blue-500 transition-all text-right">
                   <option value="">-- اختر الفرع للتسجيل --</option>
-                  {branches.map(b => (<option key={b.id} value={b.id}>{b.name} {(b.id === user.defaultBranchId || b.name === user.defaultBranchId) ? '(الأساسي)' : ''}</option>))}
+                  {branches.map(b => {
+                    const rawDefault = user.defaultBranchId || (user as any).defaultBranch || (user as any).branch || '';
+                    const defStr = String(rawDefault).trim().toLowerCase();
+                    const bNameStr = String(b.name).trim().toLowerCase();
+                    const bIdStr = String(b.id).trim().toLowerCase();
+                    const isDefault = defStr && (bIdStr === defStr || bNameStr === defStr || bNameStr.includes(defStr) || defStr.includes(bNameStr));
+                    return (
+                      <option key={b.id} value={b.id}>
+                        {b.name} {isDefault ? '(الأساسي)' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
                 <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
               </div>
