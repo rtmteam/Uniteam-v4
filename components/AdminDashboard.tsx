@@ -410,11 +410,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </h2>
           <p className="text-slate-500 text-[10px] font-black uppercase">لوحة إدارة السحابة</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-           <button onClick={() => { onRefresh(); logAction('تحديث البيانات', 'مزامنة البيانات مع السحابة'); }} disabled={isSyncing} className="flex items-center gap-2 px-5 py-3.5 rounded-2xl font-black bg-slate-900 text-blue-400 border border-blue-900/30 text-xs hover:bg-slate-800 transition-all">
-             <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} /> تحديث البيانات
-           </button>
-        </div>
       </div>
 
       <nav className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
