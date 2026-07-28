@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { FileSpreadsheet, Download, LogIn, Loader2, Table, Calendar as CalendarIcon, MapPin, User as UserIcon, Briefcase, Filter, RefreshCw, ChevronRight, ChevronLeft, X, Link as LinkIcon, AlertCircle, Check, ShieldCheck, ChevronDown, Search, Eye, EyeOff } from 'lucide-react';
+import { FileSpreadsheet, Download, LogIn, LogOut, Loader2, Table, Calendar as CalendarIcon, MapPin, User as UserIcon, Briefcase, Filter, RefreshCw, ChevronRight, ChevronLeft, X, Link as LinkIcon, AlertCircle, Check, ShieldCheck, ChevronDown, Search, Eye, EyeOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { AppConfig } from '../types';
 
@@ -9,6 +9,7 @@ interface ReportsViewProps {
   adminConfig: AppConfig;
   onUpdateConfig?: (cfg: Partial<AppConfig>) => void;
   logAction?: (action: string, details?: string) => void;
+  onRefresh?: () => void;
 }
 
 const MultiSelect = ({ label, options, selected, onToggle, placeholder, icon: Icon }: { label: string, options: string[], selected: string[], onToggle: (val: string) => void, placeholder: string, icon: any }) => {
@@ -794,9 +795,10 @@ export default function ReportsView({ syncUrl: initialSyncUrl, adminConfig, onUp
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-xl">
         <div className="text-right w-full md:w-auto"><h2 className="text-xl font-black text-blue-400 flex items-center gap-2">{isAdminLogin ? <ShieldCheck size={24} className="text-orange-400" /> : <Table size={24} />} متابعة التقارير والوظائف {isAdminLogin && <span className="text-[10px] text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded-lg border border-orange-400/20 mr-2">Admin Mode</span>}</h2><p className="text-slate-500 text-[10px] font-black uppercase">المسؤول: {username}</p></div>
-        <div className="flex flex-wrap gap-2 justify-center">
-          <button type="button" onClick={() => fetchData(false)} disabled={isRefreshing} className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-blue-400 border border-slate-700 rounded-xl text-[10px] font-black hover:bg-slate-700 transition-all"><RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} /> تحديث البيانات</button>
-          <button type="button" onClick={() => { setIsLoggedIn(false); logAction?.('تسجيل خروج متابع تقارير', `المستخدم: ${username}`); }} className="px-4 py-2 bg-slate-900/50 text-slate-400 border border-slate-700/50 rounded-xl text-[10px] font-black hover:text-red-400">خروج</button>
+        <div className="flex flex-wrap gap-2 justify-center items-center">
+          <button type="button" onClick={() => { setIsLoggedIn(false); logAction?.('تسجيل خروج متابع تقارير', `المستخدم: ${username}`); }} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-600/20 hover:bg-red-600 border border-red-500/40 hover:border-red-500 text-red-300 hover:text-white rounded-xl text-xs font-black transition-all shadow-md active:scale-95">
+            <LogOut size={14} /> تسجيل الخروج
+          </button>
           <div className="flex gap-1">
             <button type="button" onClick={exportToExcel} className="flex items-center gap-2 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-2xl font-black text-[10px] shadow-xl transition-all border border-slate-600">
               <Download size={14} /> All Data
