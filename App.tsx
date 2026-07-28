@@ -96,16 +96,12 @@ const App: React.FC = () => {
     }
   };
 
-  const DEFAULT_SYNC_URL = "https://script.google.com/macros/s/AKfycbyvJk-wiu1xQOxfBleKlG-8SrzcqQcd4yFcofESI9aESZ0ZfhrOjOLIk9dUBomikpq1PA/exec";
-
-  const syncWithCloud = useCallback(async (url?: string, force: boolean = false): Promise<any> => {
-    const targetUrl = (url && url.startsWith('http')) ? url : (config.syncUrl || config.googleSheetLink || DEFAULT_SYNC_URL);
-    if (!targetUrl || !targetUrl.startsWith('http')) return null;
-    
+  const syncWithCloud = useCallback(async (url: string, force: boolean = false) => {
+    if (!url || !url.startsWith('http')) return;
     // Don't sync if offline
     if (!navigator.onLine) {
        setSyncError(true);
-       return null;
+       return;
     }
     
     setIsSyncing(true);
@@ -114,14 +110,8 @@ const App: React.FC = () => {
       // مزامنة الوقت بالخلفية لضمان دقة ساعة التطبيق بالتوقيت المصري وحمايته من التلاعب
       syncTimeWithServer().catch(e => console.warn('Background time sync failed', e));
 
-      const fetchUrl = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getData&t=${Date.now()}`;
-      const response = await fetch(fetchUrl, {
-        cache: 'no-store',
-        headers: {
-          'Pragma': 'no-cache',
-          'Cache-Control': 'no-cache'
-        }
-      });
+      const fetchUrl = `${url}${url.includes('?') ? '&' : '?'}action=getData&t=${Date.now()}`;
+      const response = await fetch(fetchUrl);
       if (!response.ok) throw new Error('فشل الاتصال');
       const data = await response.json();
       
@@ -144,18 +134,10 @@ const App: React.FC = () => {
         // Update current user if already logged in (using functional update to avoid stale closure)
         setCurrentUser(prev => {
           if (prev && prev.role !== 'admin') {
-            const updatedUser = data.users.find((u: User) => 
-              (u.id && prev.id && String(u.id).trim() === String(prev.id).trim()) || 
-              (u.nationalId && prev.nationalId && String(u.nationalId).trim() === String(prev.nationalId).trim()) ||
-              (u.serialNumber && prev.serialNumber && String(u.serialNumber).trim() === String(prev.serialNumber).trim())
-            );
+            const updatedUser = data.users.find((u: User) => u.id === prev.id);
             if (updatedUser) {
               localStorage.setItem('attendance_current_user', JSON.stringify(updatedUser));
               return updatedUser;
-            } else {
-              // إذا لم يعد الموظف موجوداً في جوجل شيت (تم حذفه)، يتم تسجيل خروجه فوراً
-              localStorage.removeItem('attendance_current_user');
-              return null;
             }
           }
           return prev;
@@ -167,22 +149,19 @@ const App: React.FC = () => {
       }
       
       setConfig(prev => {
-        const updatedConfig = { ...prev, lastUpdated: new Date().toISOString(), syncUrl: targetUrl, googleSheetLink: targetUrl };
+        const updatedConfig = { ...prev, lastUpdated: new Date().toISOString(), syncUrl: url, googleSheetLink: url };
         if (data.holidays) updatedConfig.holidays = data.holidays;
         const { adminPassword, ...configToSave } = updatedConfig;
         localStorage.setItem('attendance_config', JSON.stringify(configToSave));
         return updatedConfig;
       });
-
-      return data;
     } catch (err) {
       setSyncError(true);
-      console.warn('Background sync failed:', err);
-      return null;
+      logAction('فشل المزامنة مع السحابة', `الخطأ: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsSyncing(false);
     }
-  }, [config.syncUrl, config.googleSheetLink]);
+  }, []); // No dependencies to avoid infinite loops
 
   // Initial Data Load
   useEffect(() => {
@@ -206,7 +185,7 @@ const App: React.FC = () => {
     // Check URL params for cloud link
     const params = new URLSearchParams(window.location.search);
     const cloudUrlEncoded = params.get('c');
-    let urlToSync = config.syncUrl || DEFAULT_SYNC_URL;
+    let urlToSync = config.syncUrl;
 
     if (cloudUrlEncoded) {
       try {
@@ -218,42 +197,39 @@ const App: React.FC = () => {
       } catch (e) {}
     }
 
-    syncWithCloud(urlToSync);
+    if (urlToSync) {
+      syncWithCloud(urlToSync);
+    }
   }, []);
 
-  // Continuous Auto-Reconnect & Periodic Sync (every 1 minute)
+  // Continuous Auto-Reconnect & Periodic Sync
   useEffect(() => {
-     const activeUrl = config.syncUrl || config.googleSheetLink || DEFAULT_SYNC_URL;
+     if (!config.syncUrl) return;
 
      // STOP Auto-Sync for Admin to allow local editing without overwrites
      if (currentUser?.role === 'admin') return;
 
      // 1. Sync immediately when coming back online
      if (isOnline) {
-       syncWithCloud(activeUrl);
+       syncWithCloud(config.syncUrl);
      }
 
-     // 2. Poll every 1 minute (60000 ms) to keep data fresh
+     // 2. Poll every 2 seconds to keep data fresh if online (for non-admin users)
      const intervalId = setInterval(() => {
        if (navigator.onLine) {
-         syncWithCloud(activeUrl);
+         syncWithCloud(config.syncUrl);
        }
-     }, 60000); // Poll every 1 minute
+     }, 300000); // 2 seconds interval
 
-     return () => {
-       clearInterval(intervalId);
-     };
-  }, [isOnline, config.syncUrl, config.googleSheetLink, syncWithCloud, currentUser]);
+     return () => clearInterval(intervalId);
+  }, [isOnline, config.syncUrl, syncWithCloud, currentUser]);
 
   // Check for global updates from GitHub static file
   useEffect(() => {
     const checkForUpdates = async () => {
       if (!navigator.onLine) return;
       try {
-        const res = await fetch('./server-config.json?t=' + Date.now(), {
-          cache: 'no-store',
-          headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
-        });
+        const res = await fetch('./server-config.json?t=' + Date.now());
         if (res.ok) {
           const data = await res.json();
           if (data && data.googleSheetLink && data.googleSheetLink.startsWith('http')) {
@@ -261,8 +237,8 @@ const App: React.FC = () => {
             const currentConfig = saved ? JSON.parse(saved) : null;
             
             const hasChanges = !currentConfig || 
-                               data.googleSheetLink !== currentConfig.syncUrl || 
-                               (data.auditLogUrl !== undefined && data.auditLogUrl !== currentConfig.auditLogUrl);
+                              data.googleSheetLink !== currentConfig.syncUrl || 
+                              (data.auditLogUrl !== undefined && data.auditLogUrl !== currentConfig.auditLogUrl);
 
             if (hasChanges) {
               setConfig(prev => {
@@ -276,18 +252,17 @@ const App: React.FC = () => {
                 localStorage.setItem('attendance_config', JSON.stringify(configToSave));
                 return updatedConfig;
               });
+              syncWithCloud(data.googleSheetLink);
             }
-            syncWithCloud(data.googleSheetLink);
           }
         }
       } catch (e) {
-        // Fallback sync
-        syncWithCloud();
+        // Ignore errors
       }
     };
 
     checkForUpdates();
-    const interval = setInterval(checkForUpdates, 3 * 60000); // Check every 3 minutes
+    const interval = setInterval(checkForUpdates, 5 * 60000); // Check every 5 minutes
     return () => clearInterval(interval);
   }, [syncWithCloud]);
 
@@ -296,8 +271,7 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('attendance_visit_plans', JSON.stringify(visitPlans)); }, [visitPlans]);
 
   const logAction = useCallback(async (action: string, details: string = '') => {
-    const targetUrl = config.syncUrl || config.googleSheetLink || DEFAULT_SYNC_URL;
-    if (!targetUrl || !targetUrl.startsWith('http') || !navigator.onLine) return;
+    if (!config.syncUrl) return;
     
     try {
       const payload = {
@@ -309,16 +283,16 @@ const App: React.FC = () => {
         spreadsheetId: config.auditLogUrl || ''
       };
       
-      await fetch(targetUrl, {
+      await fetch(config.syncUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
     } catch (e) {
-      console.warn('Audit Log notice:', e);
+      console.error('Audit Log Error:', e);
     }
-  }, [config.syncUrl, config.googleSheetLink, config.auditLogUrl, currentUser]);
+  }, [config.syncUrl, config.auditLogUrl, currentUser]);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -432,7 +406,6 @@ const App: React.FC = () => {
               branches={branches} 
               setAdminConfig={handleUpdateConfig}
               logAction={logAction}
-              onSync={syncWithCloud}
             />
           ) : (
             currentUser.role === 'admin' ? (
@@ -441,14 +414,14 @@ const App: React.FC = () => {
                 records={records} config={config} setConfig={setConfig} allUsers={allUsers} setAllUsers={setAllUsers}
                 reportAccounts={reportAccounts} setReportAccounts={setReportAccounts}
                 visitPlans={visitPlans} setVisitPlans={setVisitPlans}
-                onRefresh={() => syncWithCloud()} isSyncing={isSyncing}
+                onRefresh={() => syncWithCloud(config.syncUrl)} isSyncing={isSyncing}
                 logAction={logAction}
               />
             ) : (
               <UserDashboard 
                 user={currentUser} branches={branches} records={records} setRecords={setRecords}
                 visitPlans={visitPlans}
-                googleSheetLink={config.googleSheetLink || DEFAULT_SYNC_URL} onRefresh={() => syncWithCloud()}
+                googleSheetLink={config.googleSheetLink} onRefresh={() => syncWithCloud(config.syncUrl)}
                 isSyncing={isSyncing} lastUpdated={config.lastUpdated}
                 logAction={logAction}
               />
@@ -520,3 +493,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
