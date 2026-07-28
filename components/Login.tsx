@@ -12,6 +12,7 @@ interface LoginProps {
   branches: Branch[];
   setAdminConfig: (cfg: Partial<AppConfig>) => void;
   logAction: (action: string, details?: string) => void;
+  onSync?: (url?: string, force?: boolean) => Promise<any>;
 }
 
 export default function Login({ 
@@ -21,7 +22,8 @@ export default function Login({
   availableJobs, 
   branches, 
   setAdminConfig,
-  logAction
+  logAction,
+  onSync
 }: LoginProps) {
   const [mode, setMode] = useState<'register' | 'login' | 'admin'>('login');
   const [fullName, setFullName] = useState('');
@@ -140,36 +142,64 @@ export default function Login({
       logAction('فشل تسجيل دخول موظف', 'السبب: الجهاز غير متصل بالإنترنت');
       return;
     }
-    
-    if (allUsers.length === 0 && adminConfig.syncUrl) {
-       setError('جاري جلب البيانات، يرجى الانتظار ثوانٍ...');
-       logAction('فشل تسجيل دخول موظف', 'السبب: جاري مزامنة البيانات');
-       return;
+
+    setIsLoading(true);
+    setError('');
+
+    let currentUsersList = allUsers;
+    const syncTargetUrl = adminConfig.syncUrl || adminConfig.googleSheetLink;
+
+    // 1. المزامنة المباشرة مع شيت جوجل قبل التحقق من بيانات الدخول بالرقم القومي وكلمة المرور
+    if (onSync && syncTargetUrl) {
+      try {
+        const syncedData = await onSync(syncTargetUrl, true);
+        if (syncedData && Array.isArray(syncedData.users)) {
+          currentUsersList = syncedData.users;
+        }
+      } catch (err) {
+        console.warn('Pre-login sync notice:', err);
+      }
     }
 
-    const user = allUsers.find(u => u.nationalId === nationalId && u.password === password);
+    if (currentUsersList.length === 0 && syncTargetUrl) {
+      setError('تعذر جلب بيانات الموظفين من شيت جوجل، يرجى التأكد من الاتصال بالإنترنت ومحاولة الدخول مجدداً.');
+      logAction('فشل تسجيل دخول موظف', 'السبب: تعذر جلب بيانات الموظفين');
+      setIsLoading(false);
+      return;
+    }
+
+    const trimmedNId = nationalId.trim();
+    const trimmedPass = password.trim();
+
+    const user = currentUsersList.find(u => 
+      String(u.nationalId).trim() === trimmedNId && 
+      String(u.password).trim() === trimmedPass
+    );
     
     if (user) {
       const currentDeviceId = getDeviceFingerprint();
       
       // Check if this device belongs to someone else
-      const otherDeviceOwner = allUsers.find(u => 
+      const otherDeviceOwner = currentUsersList.find(u => 
         u.id !== user.id && 
+        String(u.nationalId).trim() !== trimmedNId &&
         ((u.deviceId === currentDeviceId) || (u.deviceIds && u.deviceIds.includes(currentDeviceId)))
       );
       
       if (otherDeviceOwner) {
         setError(`عذراً، هذا الهاتف مسجل باسم موظف آخر (${otherDeviceOwner.fullName}).`);
         logAction('فشل تسجيل دخول موظف', `السبب: الهاتف مسجل باسم موظف آخر (${otherDeviceOwner.fullName})`);
+        setIsLoading(false);
         return;
       }
 
       // Logic for Multi-Device Support
-      const userDevices = user.deviceIds || (user.deviceId ? [user.deviceId] : []);
+      const userDevices = Array.isArray(user.deviceIds) ? user.deviceIds : (user.deviceId ? [user.deviceId] : []);
       const maxDevices = user.allowedDeviceCount || 1;
 
       if (userDevices.includes(currentDeviceId)) {
         // Device is already linked -> Allow Login
+        setIsLoading(false);
         logAction('تسجيل دخول موظف', `الموظف: ${user.fullName}, الرقم القومي: ${user.nationalId}`);
         onLogin(user);
       } else {
@@ -177,42 +207,59 @@ export default function Login({
         if (userDevices.length < maxDevices) {
           // Add new device
           const updatedDevices = [...userDevices, currentDeviceId];
-          // FIX: Create new user object instead of mutating
           const updatedUser = { 
             ...user, 
             deviceIds: updatedDevices,
             deviceId: currentDeviceId
           };
           
-          if (adminConfig.googleSheetLink) {
+          if (syncTargetUrl) {
             try {
-              setIsLoading(true);
-              await fetch(adminConfig.googleSheetLink, {
+              await fetch(syncTargetUrl, {
                 method: 'POST',
                 mode: 'no-cors',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                   action: 'updateUserDevice',
                   nationalId: updatedUser.nationalId,
-                  deviceIds: updatedDevices // Send the full array
+                  userId: updatedUser.id,
+                  deviceIds: updatedDevices
                 })
               });
-              setIsLoading(false);
+              
+              // CRITICAL: Re-sync from Google Sheets to confirm device ID saved and update global state
+              if (onSync) {
+                const refreshedData = await onSync(syncTargetUrl, true);
+                if (refreshedData && Array.isArray(refreshedData.users)) {
+                  const refreshedUser = refreshedData.users.find((u: User) => 
+                    String(u.nationalId).trim() === String(updatedUser.nationalId).trim()
+                  );
+                  if (refreshedUser) {
+                    setIsLoading(false);
+                    logAction('تسجيل دخول موظف (ربط جهاز جديد)', `الموظف: ${refreshedUser.fullName}, الجهاز: ${currentDeviceId}`);
+                    onLogin(refreshedUser);
+                    return;
+                  }
+                }
+              }
             } catch (err) {
               console.error("Sync device update failed", err);
-              setIsLoading(false);
             }
           }
+          setIsLoading(false);
+          logAction('تسجيل دخول موظف (ربط جهاز جديد)', `الموظف: ${updatedUser.fullName}, الجهاز: ${currentDeviceId}`);
           onLogin(updatedUser);
         } else {
           // Limit reached
+          setIsLoading(false);
           logAction('فشل تسجيل دخول (تجاوز عدد الأجهزة)', `الموظف: ${user.fullName}, الجهاز: ${currentDeviceId}`);
           setError(`عذراً، لقد تجاوزت الحد المسموح من الأجهزة (${userDevices.length}/${maxDevices}). يرجى التواصل مع المسؤول.`);
         }
       }
     } else {
+      setIsLoading(false);
       logAction('فشل تسجيل دخول موظف', `الرقم القومي: ${nationalId}`);
-      setError('بيانات الدخول غير صحيحة، تأكد من الرقم القومي وكلمة المرور');
+      setError('بيانات الدخول غير صحيحة، تأكد من الرقم القومي وكلمة المرور المسجلة بالشيت.');
     }
   };
 
@@ -408,5 +455,3 @@ export default function Login({
     </div>
   );
 }
-
-
