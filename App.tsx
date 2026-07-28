@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, Branch, AttendanceRecord, AppConfig, Job, ReportAccount, VisitPlan } from './types';
 import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import UserDashboard from './components/UserDashboard';
 import ReportsView from './components/ReportsView';
-import { ShieldCheck, User as UserIcon, Cloud, CloudOff, RefreshCw, FileSpreadsheet, Home, Download, Share, PlusSquare, X, Wifi } from 'lucide-react';
+import { ShieldCheck, User as UserIcon, Cloud, CloudOff, RefreshCw, FileSpreadsheet, Home, Download, Share, PlusSquare, X, Wifi, LogOut } from 'lucide-react';
 import { syncTimeWithServer } from './utils';
 
 // ==========================================
@@ -96,12 +96,21 @@ const App: React.FC = () => {
     }
   };
 
-  const syncWithCloud = useCallback(async (url: string, force: boolean = false) => {
-    if (!url || !url.startsWith('http')) return;
+  const configRef = useRef(config);
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
+  const [syncToast, setSyncToast] = useState<string | null>(null);
+
+  const syncWithCloud = useCallback(async (url?: string, force: boolean = false): Promise<boolean> => {
+    const targetUrl = (url && url.startsWith('http')) ? url : (configRef.current.syncUrl || configRef.current.googleSheetLink);
+    if (!targetUrl || !targetUrl.startsWith('http')) return false;
+    
     // Don't sync if offline
     if (!navigator.onLine) {
        setSyncError(true);
-       return;
+       return false;
     }
     
     setIsSyncing(true);
@@ -110,7 +119,7 @@ const App: React.FC = () => {
       // مزامنة الوقت بالخلفية لضمان دقة ساعة التطبيق بالتوقيت المصري وحمايته من التلاعب
       syncTimeWithServer().catch(e => console.warn('Background time sync failed', e));
 
-      const fetchUrl = `${url}${url.includes('?') ? '&' : '?'}action=getData&t=${Date.now()}`;
+      const fetchUrl = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getData&t=${Date.now()}`;
       const response = await fetch(fetchUrl);
       if (!response.ok) throw new Error('فشل الاتصال');
       const data = await response.json();
@@ -125,19 +134,24 @@ const App: React.FC = () => {
       }
       if (data.reportAccounts) {
         setReportAccounts(data.reportAccounts);
-        localStorage.setItem('attendance_report_accounts', JSON.stringify(data.reportAccounts));
+        // Security: Strip passwords before saving to localStorage
+        const safeAccounts = (data.reportAccounts || []).map(({ password, ...acc }: any) => acc);
+        localStorage.setItem('attendance_report_accounts', JSON.stringify(safeAccounts));
       }
       if (data.users && Array.isArray(data.users)) {
         setAllUsers(data.users);
-        localStorage.setItem('attendance_users', JSON.stringify(data.users));
+        // Security: Strip passwords before saving users to localStorage
+        const safeUsers = data.users.map(({ password, ...u }: any) => u);
+        localStorage.setItem('attendance_users', JSON.stringify(safeUsers));
         
-        // Update current user if already logged in (using functional update to avoid stale closure)
+        // Update current user if already logged in
         setCurrentUser(prev => {
           if (prev && prev.role !== 'admin') {
             const updatedUser = data.users.find((u: User) => u.id === prev.id);
             if (updatedUser) {
-              localStorage.setItem('attendance_current_user', JSON.stringify(updatedUser));
-              return updatedUser;
+              const { password, ...safeUpdatedUser } = updatedUser;
+              localStorage.setItem('attendance_current_user', JSON.stringify(safeUpdatedUser));
+              return safeUpdatedUser as User;
             }
           }
           return prev;
@@ -149,19 +163,39 @@ const App: React.FC = () => {
       }
       
       setConfig(prev => {
-        const updatedConfig = { ...prev, lastUpdated: new Date().toISOString(), syncUrl: url, googleSheetLink: url };
+        const updatedConfig = { ...prev, lastUpdated: new Date().toISOString(), syncUrl: targetUrl, googleSheetLink: targetUrl };
         if (data.holidays) updatedConfig.holidays = data.holidays;
         const { adminPassword, ...configToSave } = updatedConfig;
         localStorage.setItem('attendance_config', JSON.stringify(configToSave));
         return updatedConfig;
       });
+      return true;
     } catch (err) {
       setSyncError(true);
       logAction('فشل المزامنة مع السحابة', `الخطأ: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     } finally {
       setIsSyncing(false);
     }
-  }, []); // No dependencies to avoid infinite loops
+  }, []); // Truly stable callback to prevent infinite sync loops
+
+  const handleManualRefresh = async () => {
+    const targetUrl = config.syncUrl || config.googleSheetLink;
+    if (!targetUrl) {
+      setSyncToast('يرجى التأكد من ربط التطبيق بشيت جوجل أولاً');
+      setTimeout(() => setSyncToast(null), 3000);
+      return;
+    }
+    
+    setSyncToast('جاري تحديث البيانات من شيت جوجل...');
+    const success = await syncWithCloud(targetUrl, true);
+    if (success) {
+      setSyncToast('تم تحديث جميع البيانات بنجاح!');
+    } else {
+      setSyncToast('حدث خطأ أثناء المزامنة، تأكد من الاتصال بالإنترنت');
+    }
+    setTimeout(() => setSyncToast(null), 3000);
+  };
 
   // Initial Data Load
   useEffect(() => {
@@ -175,12 +209,33 @@ const App: React.FC = () => {
     const savedUsers = localStorage.getItem('attendance_users');
     const savedReportAccounts = localStorage.getItem('attendance_report_accounts');
     
-    if (savedUser) setCurrentUser(JSON.parse(savedUser));
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        delete parsed.password; // Security: Ensure no password in state or storage
+        setCurrentUser(parsed);
+        localStorage.setItem('attendance_current_user', JSON.stringify(parsed));
+      } catch (e) {}
+    }
     if (savedBranches) setBranches(JSON.parse(savedBranches));
     if (savedJobs) setJobs(JSON.parse(savedJobs));
     if (savedPlans) setVisitPlans(JSON.parse(savedPlans));
-    if (savedUsers) setAllUsers(JSON.parse(savedUsers));
-    if (savedReportAccounts) setReportAccounts(JSON.parse(savedReportAccounts));
+    if (savedUsers) {
+      try {
+        const parsed = JSON.parse(savedUsers);
+        const cleaned = Array.isArray(parsed) ? parsed.map(({ password, ...u }: any) => u) : [];
+        setAllUsers(cleaned);
+        localStorage.setItem('attendance_users', JSON.stringify(cleaned));
+      } catch (e) {}
+    }
+    if (savedReportAccounts) {
+      try {
+        const parsed = JSON.parse(savedReportAccounts);
+        const cleaned = Array.isArray(parsed) ? parsed.map(({ password, ...acc }: any) => acc) : [];
+        setReportAccounts(cleaned);
+        localStorage.setItem('attendance_report_accounts', JSON.stringify(cleaned));
+      } catch (e) {}
+    }
     
     // Check URL params for cloud link
     const params = new URLSearchParams(window.location.search);
@@ -202,27 +257,19 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Continuous Auto-Reconnect & Periodic Sync
+  // Periodic Auto-Sync (Every 1 minute) & Reconnect Listener
   useEffect(() => {
-     if (!config.syncUrl) return;
+     if (!config.syncUrl || currentUser?.role === 'admin') return;
 
-     // STOP Auto-Sync for Admin to allow local editing without overwrites
-     if (currentUser?.role === 'admin') return;
-
-     // 1. Sync immediately when coming back online
-     if (isOnline) {
-       syncWithCloud(config.syncUrl);
-     }
-
-     // 2. Poll every 2 seconds to keep data fresh if online (for non-admin users)
+     // Poll every 1 minute (60,000 ms) to keep data fresh
      const intervalId = setInterval(() => {
-       if (navigator.onLine) {
-         syncWithCloud(config.syncUrl);
+       if (navigator.onLine && configRef.current.syncUrl) {
+         syncWithCloud(configRef.current.syncUrl);
        }
-     }, 300000); // 2 seconds interval
+     }, 60000); // 1 minute interval
 
      return () => clearInterval(intervalId);
-  }, [isOnline, config.syncUrl, syncWithCloud, currentUser]);
+  }, [config.syncUrl, currentUser?.role, syncWithCloud]);
 
   // Check for global updates from GitHub static file
   useEffect(() => {
@@ -295,8 +342,10 @@ const App: React.FC = () => {
   }, [config.syncUrl, config.auditLogUrl, currentUser]);
 
   const handleLogin = (user: User) => {
-    setCurrentUser(user);
-    localStorage.setItem('attendance_current_user', JSON.stringify(user));
+    // Security: Do not store password in state or localStorage
+    const { password, ...safeUser } = user;
+    setCurrentUser(safeUser as User);
+    localStorage.setItem('attendance_current_user', JSON.stringify(safeUser));
   };
 
   const handleLogout = () => {
@@ -321,20 +370,20 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col relative z-10">
       <header className="bg-white/90 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50 h-16">
-        <div className="max-w-5xl mx-auto px-4 h-full flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-5xl mx-auto px-4 h-full flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
             <div className="bg-blue-600 p-2 rounded-xl text-white">
-              {currentUser?.role === 'admin' ? <ShieldCheck size={24} /> : <UserIcon size={24} />}
+              {currentUser?.role === 'admin' ? <ShieldCheck size={22} /> : <UserIcon size={22} />}
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-black text-gray-800 text-lg uppercase tracking-tighter">Uniteam</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-black text-gray-800 text-base md:text-lg uppercase tracking-tighter">Uniteam</h1>
                 {isSyncing ? (
                   <RefreshCw size={14} className="text-blue-500 animate-spin" />
                 ) : isOnline && config.syncUrl ? (
                   <div className="flex items-center gap-1">
                     {currentUser?.role === 'admin' ? (
-                      <span className="text-[10px] text-orange-500 font-bold border border-orange-200 bg-orange-50 px-1.5 py-0.5 rounded">Manual Sync</span>
+                      <span className="text-[9px] text-orange-500 font-bold border border-orange-200 bg-orange-50 px-1 py-0.5 rounded">Sync Active</span>
                     ) : (
                       <>
                         <Cloud size={14} className="text-green-500" />
@@ -346,17 +395,33 @@ const App: React.FC = () => {
                   <CloudOff size={14} className="text-red-500" />
                 )}
               </div>
-              {currentUser && <p className="text-[10px] text-gray-500 font-black">{currentUser.fullName}</p>}
+              {currentUser && <p className="text-[10px] text-gray-500 font-black truncate max-w-[120px] md:max-w-[180px]">{currentUser.fullName}</p>}
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 md:gap-2">
+            {/* Global Refresh/Sync Button visible on ALL pages */}
+            <button
+              onClick={handleManualRefresh}
+              disabled={isSyncing}
+              title="تحديث بيانات التطبيق "
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 border ${
+                isSyncing
+                  ? 'bg-blue-100 text-blue-700 border-blue-300 cursor-wait'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 hover:shadow'
+              }`}
+            >
+              <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+              <span className="hidden sm:inline">{isSyncing ? 'جاري التحديث...' : 'تحديث البيانات'}</span>
+              <span className="sm:hidden">{isSyncing ? '...' : 'تحديث'}</span>
+            </button>
+
             {showInstallButton && (
                <button 
                  onClick={handleInstallClick}
                  className="hidden md:flex items-center gap-1 bg-green-600 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-lg hover:bg-green-500 transition-all animate-pulse"
                >
-                 <Download size={14} /> {isIos ? 'تثبيت على الآيفون' : 'تثبيت التطبيق'}
+                 <Download size={14} /> {isIos ? 'تثبيت آيفون' : 'تثبيت'}
                </button>
              )}
              
@@ -364,19 +429,28 @@ const App: React.FC = () => {
                <div className="flex bg-slate-100 p-1 rounded-xl">
                  <button 
                    onClick={() => setActiveView('main')} 
-                   className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center gap-1.5 ${activeView === 'main' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                   className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 ${activeView === 'main' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
                  >
                    <Home size={14} /> الرئيسية
                  </button>
                  <button 
                    onClick={() => setActiveView('reports')} 
-                   className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center gap-1.5 ${activeView === 'reports' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                   className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 ${activeView === 'reports' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
                  >
                    <FileSpreadsheet size={14} /> Reports
                  </button>
                </div>
              )}
-             {currentUser && <button onClick={handleLogout} className="px-4 py-2 text-xs font-black text-red-600 bg-red-50 rounded-xl">خروج</button>}
+             {currentUser && (
+                <button 
+                  onClick={handleLogout} 
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black text-red-600 bg-red-50 hover:bg-red-600 hover:text-white border border-red-200 hover:border-red-600 rounded-xl transition-all shadow-sm active:scale-95 shrink-0"
+                  title="تسجيل الخروج من التطبيق"
+                >
+                  <LogOut size={14} />
+                  <span>تسجيل خروج</span>
+                </button>
+              )}
           </div>
         </div>
         
@@ -389,12 +463,20 @@ const App: React.FC = () => {
         {showInstallButton && (
            <button 
              onClick={handleInstallClick}
-             className="md:hidden w-full bg-green-600 text-white py-2 text-xs font-black flex justify-center items-center gap-2"
+             className="md:hidden w-full bg-green-600 text-white py-1.5 text-xs font-black flex justify-center items-center gap-2"
            >
-             <Download size={16} /> {isIos ? 'تثبيت Uniteam على الآيفون' : 'تثبيت Uniteam على هاتفك'}
+             <Download size={14} /> {isIos ? 'تثبيت Uniteam على الآيفون' : 'تثبيت Uniteam على هاتفك'}
            </button>
          )}
       </header>
+
+      {/* Sync Toast Notification */}
+      {syncToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 text-white border border-slate-700 px-5 py-2.5 rounded-2xl shadow-2xl text-xs font-black flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <RefreshCw size={15} className={`text-blue-400 ${isSyncing ? 'animate-spin' : ''}`} />
+          <span>{syncToast}</span>
+        </div>
+      )}
 
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 pb-24">
         {activeView === 'reports' && !currentUser ? (
@@ -406,6 +488,7 @@ const App: React.FC = () => {
               branches={branches} 
               setAdminConfig={handleUpdateConfig}
               logAction={logAction}
+              onSync={syncWithCloud}
             />
           ) : (
             currentUser.role === 'admin' ? (
@@ -414,14 +497,14 @@ const App: React.FC = () => {
                 records={records} config={config} setConfig={setConfig} allUsers={allUsers} setAllUsers={setAllUsers}
                 reportAccounts={reportAccounts} setReportAccounts={setReportAccounts}
                 visitPlans={visitPlans} setVisitPlans={setVisitPlans}
-                onRefresh={() => syncWithCloud(config.syncUrl)} isSyncing={isSyncing}
+                onRefresh={() => syncWithCloud(config.syncUrl, true)} isSyncing={isSyncing}
                 logAction={logAction}
               />
             ) : (
               <UserDashboard 
                 user={currentUser} branches={branches} records={records} setRecords={setRecords}
                 visitPlans={visitPlans}
-                googleSheetLink={config.googleSheetLink} onRefresh={() => syncWithCloud(config.syncUrl)}
+                googleSheetLink={config.googleSheetLink} onRefresh={() => syncWithCloud(config.syncUrl, true)}
                 isSyncing={isSyncing} lastUpdated={config.lastUpdated}
                 logAction={logAction}
               />
@@ -493,4 +576,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
