@@ -98,14 +98,14 @@ const App: React.FC = () => {
 
   const DEFAULT_SYNC_URL = "https://script.google.com/macros/s/AKfycbyvJk-wiu1xQOxfBleKlG-8SrzcqQcd4yFcofESI9aESZ0ZfhrOjOLIk9dUBomikpq1PA/exec";
 
-  const syncWithCloud = useCallback(async (url?: string, force: boolean = false) => {
+  const syncWithCloud = useCallback(async (url?: string, force: boolean = false): Promise<any> => {
     const targetUrl = (url && url.startsWith('http')) ? url : (config.syncUrl || config.googleSheetLink || DEFAULT_SYNC_URL);
-    if (!targetUrl || !targetUrl.startsWith('http')) return;
+    if (!targetUrl || !targetUrl.startsWith('http')) return null;
     
     // Don't sync if offline
     if (!navigator.onLine) {
        setSyncError(true);
-       return;
+       return null;
     }
     
     setIsSyncing(true);
@@ -173,9 +173,12 @@ const App: React.FC = () => {
         localStorage.setItem('attendance_config', JSON.stringify(configToSave));
         return updatedConfig;
       });
+
+      return data;
     } catch (err) {
       setSyncError(true);
       console.warn('Background sync failed:', err);
+      return null;
     } finally {
       setIsSyncing(false);
     }
@@ -429,6 +432,7 @@ const App: React.FC = () => {
               branches={branches} 
               setAdminConfig={handleUpdateConfig}
               logAction={logAction}
+              onSync={syncWithCloud}
             />
           ) : (
             currentUser.role === 'admin' ? (
@@ -516,4 +520,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
