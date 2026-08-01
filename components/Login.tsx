@@ -116,8 +116,7 @@ export default function Login({
       try {
         await fetch(adminConfig.googleSheetLink, {
           method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ 
             action: 'registerUser',
             ...newUser,
@@ -203,52 +202,62 @@ export default function Login({
         logAction('تسجيل دخول موظف', `الموظف: ${user.fullName}, الرقم القومي: ${user.nationalId}`);
         onLogin(user);
       } else {
-        // Device not linked, check if we can add it
+        // الجهاز غير مرتبط بعد - نتحقق هل يمكن إضافته ضمن الحد المسموح
         if (userDevices.length < maxDevices) {
-          // Add new device
           const updatedDevices = [...userDevices, currentDeviceId];
-          const updatedUser = { 
-            ...user, 
-            deviceIds: updatedDevices,
-            deviceId: currentDeviceId
-          };
-          
-          if (syncTargetUrl) {
-            try {
-              await fetch(syncTargetUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                  action: 'updateUserDevice',
-                  nationalId: updatedUser.nationalId,
-                  userId: updatedUser.id,
-                  deviceIds: updatedDevices
-                })
-              });
-              
-              // CRITICAL: Re-sync from Google Sheets to confirm device ID saved and update global state
-              if (onSync) {
-                const refreshedData = await onSync(syncTargetUrl, true);
-                if (refreshedData && Array.isArray(refreshedData.users)) {
-                  const refreshedUser = refreshedData.users.find((u: User) => 
-                    String(u.nationalId).trim() === String(updatedUser.nationalId).trim()
-                  );
-                  if (refreshedUser) {
-                    setIsLoading(false);
-                    logAction('تسجيل دخول موظف (ربط جهاز جديد)', `الموظف: ${refreshedUser.fullName}, الجهاز: ${currentDeviceId}`);
-                    onLogin(refreshedUser);
-                    return;
-                  }
-                }
-              }
-            } catch (err) {
-              console.error("Sync device update failed", err);
-            }
+
+          if (!syncTargetUrl) {
+            setIsLoading(false);
+            setError('تعذر ربط هذا الجهاز الجديد: لا يوجد رابط مزامنة مضبوط. يرجى التواصل مع المسؤول.');
+            logAction('فشل ربط جهاز جديد', `الموظف: ${user.fullName}, السبب: لا يوجد رابط مزامنة`);
+            return;
           }
-          setIsLoading(false);
-          logAction('تسجيل دخول موظف (ربط جهاز جديد)', `الموظف: ${updatedUser.fullName}, الجهاز: ${currentDeviceId}`);
-          onLogin(updatedUser);
+
+          try {
+            await fetch(syncTargetUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                action: 'updateUserDevice',
+                nationalId: user.nationalId,
+                userId: user.id,
+                deviceIds: updatedDevices
+              })
+            });
+
+            // إعادة المزامنة من شيت جوجل للتأكد الفعلي من أن الجهاز حُفظ بنجاح قبل السماح بالدخول
+            if (onSync) {
+              await onSync(syncTargetUrl, true);
+            }
+
+            const freshUsersStr = localStorage.getItem('attendance_users');
+            const freshUsersList = freshUsersStr ? JSON.parse(freshUsersStr) : allUsers;
+            const refreshedUser = freshUsersList.find((u: User) =>
+              String(u.nationalId).trim() === String(user.nationalId).trim()
+            );
+
+            const refreshedDevices = refreshedUser
+              ? (Array.isArray(refreshedUser.deviceIds) ? refreshedUser.deviceIds : (refreshedUser.deviceId ? [refreshedUser.deviceId] : []))
+              : [];
+
+            // السماح بالدخول فقط إذا أكّد الخادم فعلاً أن هذا الجهاز أصبح ضمن الأجهزة المسجلة لهذا الموظف
+            if (refreshedUser && refreshedDevices.includes(currentDeviceId)) {
+              setIsLoading(false);
+              logAction('تسجيل دخول موظف (ربط جهاز جديد)', `الموظف: ${refreshedUser.fullName}, الجهاز: ${currentDeviceId}`);
+              onLogin(refreshedUser);
+              return;
+            }
+
+            // لم يتأكد الحفظ فعلياً على الخادم - لا نسمح بالدخول تجنباً لدخول ناجح محلياً لكن مرفوض عند تسجيل الحضور
+            setIsLoading(false);
+            setError('تعذر تأكيد ربط هذا الجهاز على الخادم. تأكد من اتصالك بالإنترنت وحاول مرة أخرى.');
+            logAction('فشل ربط جهاز جديد', `الموظف: ${user.fullName}, السبب: تعذر تأكيد الحفظ من الخادم`);
+          } catch (err) {
+            console.error("Sync device update failed", err);
+            setIsLoading(false);
+            setError('تعذر الاتصال بالخادم لربط هذا الجهاز. تأكد من اتصالك بالإنترنت وحاول مرة أخرى.');
+            logAction('فشل ربط جهاز جديد', `الموظف: ${user.fullName}, السبب: خطأ اتصال`);
+          }
         } else {
           // Limit reached
           setIsLoading(false);
@@ -270,37 +279,48 @@ export default function Login({
 
     const user = adminUsername.trim();
     const pass = adminPassword.trim();
-    
-    // 1. Local Check (Configured from single source of truth in App.tsx)
-    const isLocalValid = user === adminConfig.adminUsername && pass === adminConfig.adminPassword;
+    const syncTargetUrl = adminConfig.syncUrl || adminConfig.googleSheetLink;
 
-    if (isLocalValid) {
-      logAction('تسجيل دخول مسؤول (محلي)', `المسؤول: ${user}`);
-      onLogin({ id: 'admin-id', fullName: 'المسؤول', nationalId: '000', role: 'admin' });
+    if (!syncTargetUrl) {
+      setError('لم يتم ضبط رابط الاتصال بالخادم بعد. يرجى مراجعة إعدادات المزامنة.');
+      logAction('فشل تسجيل دخول مسؤول', 'السبب: لا يوجد رابط مزامنة مضبوط');
       setIsLoading(false);
       return;
     }
 
-    // 2. Cloud Check (if syncUrl is available) - To match ReportsView behavior
-    if (adminConfig.syncUrl) {
-      try {
-        const response = await fetch(`${adminConfig.syncUrl}?action=getReportData&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`);
-        const data = await response.json();
-        
-        if (!data.error) {
-          // If cloud accepts, allow access to management
-          logAction('تسجيل دخول مسؤول (سحابي)', `المسؤول: ${user}`);
-          onLogin({ id: 'admin-id', fullName: `المسؤول (${user})`, nationalId: '000', role: 'admin' });
-          setIsLoading(false);
-          return;
-        }
-      } catch (err) {
-        console.error("Cloud admin check failed", err);
+    if (!navigator.onLine) {
+      setError('الدخول كمسؤول يتطلب اتصالاً بالإنترنت للتحقق الآمن من الخادم.');
+      logAction('فشل تسجيل دخول مسؤول', 'السبب: الجهاز غير متصل بالإنترنت');
+      setIsLoading(false);
+      return;
+    }
+
+    // التحقق الآمن من بيانات المسؤول: يتم بالكامل على الخادم (Google Apps Script).
+    // لا تُخزَّن كلمة المرور ولا تُقارَن داخل التطبيق إطلاقاً؛ الخادم وحده يقرر.
+    try {
+      const response = await fetch(syncTargetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'verifyAdmin', user, pass })
+      });
+      const data = await response.json();
+
+      if (data && data.valid) {
+        logAction('تسجيل دخول مسؤول', `المسؤول: ${user}`);
+        onLogin({ id: 'admin-id', fullName: `المسؤول (${user})`, nationalId: '000', role: 'admin' });
+        setIsLoading(false);
+        return;
       }
+    } catch (err) {
+      console.error("Admin verification failed", err);
+      setError('تعذر الاتصال بالخادم للتحقق من بيانات المسؤول. حاول مرة أخرى.');
+      logAction('فشل تسجيل دخول مسؤول', `السبب: خطأ اتصال - ${err instanceof Error ? err.message : String(err)}`);
+      setIsLoading(false);
+      return;
     }
 
     logAction('فشل تسجيل دخول مسؤول', `المحاولة باسم: ${user}`);
-    setError('بيانات المسؤول غير صحيحة. تأكد من حالة الأحرف (B كبيرة) أو استخدم بيانات تقارير المسؤول');
+    setError('بيانات المسؤول غير صحيحة.');
     setIsLoading(false);
   };
 
