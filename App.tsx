@@ -6,7 +6,7 @@ import AdminDashboard from './components/AdminDashboard';
 import UserDashboard from './components/UserDashboard';
 import ReportsView from './components/ReportsView';
 import { ShieldCheck, User as UserIcon, Cloud, CloudOff, RefreshCw, FileSpreadsheet, Home, Download, Share, PlusSquare, X, Wifi, LogOut } from 'lucide-react';
-import { syncTimeWithServer } from './utils';
+import { syncTimeWithServer, sanitizeUrl } from './utils';
 
 // ==========================================
 // المصدر الرئيسي الوحيد لكلمة مرور المسؤول (Admin Password)
@@ -104,7 +104,8 @@ const App: React.FC = () => {
   const [syncToast, setSyncToast] = useState<string | null>(null);
 
   const syncWithCloud = useCallback(async (url?: string, force: boolean = false): Promise<boolean> => {
-    const targetUrl = (url && url.startsWith('http')) ? url : (configRef.current.syncUrl || configRef.current.googleSheetLink);
+    const rawTarget = (url && url.startsWith('http')) ? url : (configRef.current.syncUrl || configRef.current.googleSheetLink);
+    const targetUrl = sanitizeUrl(rawTarget);
     if (!targetUrl || !targetUrl.startsWith('http')) return false;
     
     // Don't sync if offline
@@ -179,18 +180,52 @@ const App: React.FC = () => {
     }
   }, []); // Truly stable callback to prevent infinite sync loops
 
+  const fetchLatestServerConfig = useCallback(async (): Promise<string | null> => {
+    if (!navigator.onLine) return null;
+    try {
+      const res = await fetch('./server-config.json?t=' + Date.now());
+      if (res.ok) {
+        const data = await res.json();
+        const rawSheetLink = data?.googleSheetLink || data?.syncUrl;
+        const sheetLink = sanitizeUrl(rawSheetLink);
+        if (sheetLink && sheetLink.startsWith('http')) {
+          setConfig(prev => {
+            const updatedConfig = { 
+              ...prev, 
+              syncUrl: sheetLink, 
+              googleSheetLink: sheetLink,
+              auditLogUrl: data.auditLogUrl !== undefined ? data.auditLogUrl : prev.auditLogUrl
+            };
+            const { adminPassword, ...configToSave } = updatedConfig;
+            localStorage.setItem('attendance_config', JSON.stringify(configToSave));
+            return updatedConfig;
+          });
+          return sheetLink;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch server-config.json', e);
+    }
+    return null;
+  }, []);
+
   const handleManualRefresh = async () => {
-    const targetUrl = config.syncUrl || config.googleSheetLink;
+    setSyncToast('جاري تحديث الرابط والبيانات من السحابة...');
+    
+    // 1. Refresh link from server-config.json first
+    const freshLink = await fetchLatestServerConfig();
+    const targetUrl = freshLink || configRef.current.syncUrl || configRef.current.googleSheetLink || config.syncUrl || config.googleSheetLink;
+
     if (!targetUrl) {
       setSyncToast('يرجى التأكد من ربط التطبيق بشيت جوجل أولاً');
       setTimeout(() => setSyncToast(null), 3000);
       return;
     }
     
-    setSyncToast('جاري تحديث البيانات من شيت جوجل...');
+    // 2. Perform sync using the targetUrl
     const success = await syncWithCloud(targetUrl, true);
     if (success) {
-      setSyncToast('تم تحديث جميع البيانات بنجاح!');
+      setSyncToast('تم تحديث الرابط وجميع البيانات بنجاح!');
     } else {
       setSyncToast('حدث خطأ أثناء المزامنة، تأكد من الاتصال بالإنترنت');
     }
@@ -275,43 +310,16 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkForUpdates = async () => {
       if (!navigator.onLine) return;
-      try {
-        const res = await fetch('./server-config.json?t=' + Date.now());
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.googleSheetLink && data.googleSheetLink.startsWith('http')) {
-            const saved = localStorage.getItem('attendance_config');
-            const currentConfig = saved ? JSON.parse(saved) : null;
-            
-            const hasChanges = !currentConfig || 
-                              data.googleSheetLink !== currentConfig.syncUrl || 
-                              (data.auditLogUrl !== undefined && data.auditLogUrl !== currentConfig.auditLogUrl);
-
-            if (hasChanges) {
-              setConfig(prev => {
-                const updatedConfig = { 
-                  ...prev, 
-                  syncUrl: data.googleSheetLink, 
-                  googleSheetLink: data.googleSheetLink,
-                  auditLogUrl: data.auditLogUrl !== undefined ? data.auditLogUrl : prev.auditLogUrl
-                };
-                const { adminPassword, ...configToSave } = updatedConfig;
-                localStorage.setItem('attendance_config', JSON.stringify(configToSave));
-                return updatedConfig;
-              });
-              syncWithCloud(data.googleSheetLink);
-            }
-          }
-        }
-      } catch (e) {
-        // Ignore errors
+      const newLink = await fetchLatestServerConfig();
+      if (newLink && newLink !== configRef.current.syncUrl) {
+        syncWithCloud(newLink);
       }
     };
 
     checkForUpdates();
     const interval = setInterval(checkForUpdates, 5 * 60000); // Check every 5 minutes
     return () => clearInterval(interval);
-  }, [syncWithCloud]);
+  }, [fetchLatestServerConfig, syncWithCloud]);
 
   useEffect(() => { localStorage.setItem('attendance_branches', JSON.stringify(branches)); }, [branches]);
   useEffect(() => { localStorage.setItem('attendance_jobs', JSON.stringify(jobs)); }, [jobs]);
