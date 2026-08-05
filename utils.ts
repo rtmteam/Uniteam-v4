@@ -186,3 +186,14 @@ export function getEgyptTime(dateInput?: Date | number | string): Date {
   return d;
 }
 
+/**
+ * تنظيف وتصحيح روابط Google Apps Script وتمرير الأخطاء الشائعة مثل /execc
+ */
+export const sanitizeUrl = (url?: string): string => {
+  if (!url || typeof url !== 'string') return '';
+  let cleaned = url.trim();
+  if (cleaned.includes('script.google.com')) {
+    cleaned = cleaned.replace(/\/exec[c\/]+$/i, '/exec');
+  }
+  return cleaned;
+};
