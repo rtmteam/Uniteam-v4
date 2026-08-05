@@ -37,6 +37,9 @@ export interface User {
   allowedDeviceCount?: number; // New: Limit of devices per user
   jobTitle?: string;
   defaultBranchId?: string; 
+  defaultBranch?: string;
+  assignedBranch?: string;
+  branch?: string;
   registrationDate?: string; 
   checkInTime?: string; 
   checkOutTime?: string; 

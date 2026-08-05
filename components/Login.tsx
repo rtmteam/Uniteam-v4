@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { User, AppConfig, Job, Branch } from '../types';
 import { UserPlus, LogIn, ShieldAlert, Briefcase, Loader2, Link as LinkIcon, Smartphone, AlertCircle, WifiOff, MapPin, Eye, EyeOff } from 'lucide-react';
-import { getDeviceFingerprint, sanitizeUrl } from '../utils';
+import { getDeviceFingerprint } from '../utils';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -282,22 +282,20 @@ export default function Login({
     }
 
     // 2. Cloud Check (if syncUrl is available) - To match ReportsView behavior
-    const targetSyncUrl = sanitizeUrl(adminConfig.syncUrl);
-    if (targetSyncUrl) {
+    if (adminConfig.syncUrl) {
       try {
-        const response = await fetch(`${targetSyncUrl}?action=getReportData&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (!data.error) {
-            // If cloud accepts, allow access to management
-            logAction('تسجيل دخول مسؤول (سحابي)', `المسؤول: ${user}`);
-            onLogin({ id: 'admin-id', fullName: `المسؤول (${user})`, nationalId: '000', role: 'admin' });
-            setIsLoading(false);
-            return;
-          }
+        const response = await fetch(`${adminConfig.syncUrl}?action=getReportData&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`);
+        const data = await response.json();
+        
+        if (!data.error) {
+          // If cloud accepts, allow access to management
+          logAction('تسجيل دخول مسؤول (سحابي)', `المسؤول: ${user}`);
+          onLogin({ id: 'admin-id', fullName: `المسؤول (${user})`, nationalId: '000', role: 'admin' });
+          setIsLoading(false);
+          return;
         }
       } catch (err) {
-        console.warn("Cloud admin check warning:", err);
+        console.error("Cloud admin check failed", err);
       }
     }
 

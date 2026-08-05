@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Branch, AttendanceRecord, VisitPlan } from '../types';
 import { MapPin, Clock, CheckCircle, AlertCircle, RotateCcw, Cloud, FileText, Navigation, Calendar } from 'lucide-react';
-import { calculateDistance, getDeviceFingerprint, getEgyptTime, getRealNetworkTime, sanitizeUrl } from '../utils';
+import { calculateDistance, getDeviceFingerprint, getEgyptTime, getRealNetworkTime } from '../utils';
 
 interface UserDashboardProps {
   user: User;
@@ -29,38 +29,58 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   logAction,
   visitPlans
 }) => {
+  const isUserDefaultBranch = (branch: Branch, u: User): boolean => {
+    const defaultVal = (
+      u.defaultBranchId || 
+      u.defaultBranch || 
+      u.assignedBranch || 
+      u.branch || 
+      ''
+    ).toString().trim();
+    if (!defaultVal) return false;
+
+    const bId = String(branch.id).trim();
+    const bName = String(branch.name).trim();
+
+    if (bId === defaultVal || bName === defaultVal) return true;
+    if (bName.toLowerCase() === defaultVal.toLowerCase()) return true;
+    return false;
+  };
+
   const findInitialBranchId = () => {
-    const rawDefault = user.defaultBranchId || (user as any).defaultBranch || (user as any).branch || (user as any).branchName || (user as any).defaultBranchName;
-    if (!rawDefault) {
-      if (branches.length === 1) return branches[0].id;
-      return '';
+    const rawBranchValue = (
+      user.defaultBranchId || 
+      user.defaultBranch || 
+      user.assignedBranch || 
+      user.branch || 
+      ''
+    ).toString().trim();
+
+    if (!rawBranchValue) {
+      return branches.length > 0 ? branches[0].id : '';
     }
 
-    const targetStr = String(rawDefault).trim();
-    if (!targetStr) {
-      if (branches.length === 1) return branches[0].id;
-      return '';
-    }
-
-    // Direct ID match (trimmed & case-insensitive)
-    const branchById = branches.find(b => String(b.id).trim().toLowerCase() === targetStr.toLowerCase());
+    // 1. Direct match by branch ID
+    const branchById = branches.find(b => String(b.id).trim() === rawBranchValue);
     if (branchById) return branchById.id;
 
-    // Direct Name match (trimmed & case-insensitive)
-    const branchByName = branches.find(b => String(b.name).trim().toLowerCase() === targetStr.toLowerCase());
+    // 2. Direct match by branch Name (trimmed)
+    const branchByName = branches.find(b => b.name.trim() === rawBranchValue);
     if (branchByName) return branchByName.id;
 
-    // Flexible substring match (e.g., "المعادي" vs "فرع المعادي" or vice versa)
-    const targetLower = targetStr.toLowerCase();
-    const branchFlexible = branches.find(b => {
-      const bName = String(b.name).trim().toLowerCase();
-      const bId = String(b.id).trim().toLowerCase();
-      return bName === targetLower || bName.includes(targetLower) || targetLower.includes(bName) || bId.includes(targetLower);
-    });
-    if (branchFlexible) return branchFlexible.id;
+    // 3. Case-insensitive match by branch Name
+    const branchByNameCaseInsensitive = branches.find(b => b.name.trim().toLowerCase() === rawBranchValue.toLowerCase());
+    if (branchByNameCaseInsensitive) return branchByNameCaseInsensitive.id;
 
-    if (branches.length > 0) return branches[0].id;
-    return '';
+    // 4. Substring / Partial match
+    const branchByPartial = branches.find(b => 
+      b.name.trim().toLowerCase().includes(rawBranchValue.toLowerCase()) || 
+      rawBranchValue.toLowerCase().includes(b.name.trim().toLowerCase())
+    );
+    if (branchByPartial) return branchByPartial.id;
+
+    // Default fallback to first available branch
+    return branches.length > 0 ? branches[0].id : '';
   };
 
   const [selectedBranchId, setSelectedBranchId] = useState(findInitialBranchId());
@@ -113,11 +133,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   }, []);
 
   useEffect(() => {
-    const initId = findInitialBranchId();
-    if (initId && (!selectedBranchId || !branches.some(b => b.id === selectedBranchId))) {
-      setSelectedBranchId(initId);
+    if (branches.length > 0) {
+      const initialId = findInitialBranchId();
+      if (initialId && (!selectedBranchId || !branches.some(b => b.id === selectedBranchId))) {
+        setSelectedBranchId(initialId);
+      }
     }
-  }, [branches, user.defaultBranchId, (user as any).defaultBranch, (user as any).branch]);
+  }, [branches, user.defaultBranchId, user.defaultBranch, user.assignedBranch, user.branch]);
 
   const formatTimeDisplay = (timeStr: string | undefined) => {
     if (!timeStr) return '--:--';
@@ -283,16 +305,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
     };
 
     try {
-        let activeLink = sanitizeUrl(googleSheetLink);
+        let activeLink = googleSheetLink;
         
         // جلب أحدث رابط من السيرفر قبل التسجيل مباشرة لضمان عدم استخدام رابط قديم
         try {
             const configRes = await fetch('./server-config.json?t=' + Date.now());
             if (configRes.ok) {
                 const configData = await configRes.json();
-                const fetchedLink = sanitizeUrl(configData?.googleSheetLink);
-                if (fetchedLink && fetchedLink.startsWith('http')) {
-                    activeLink = fetchedLink;
+                if (configData && configData.googleSheetLink && configData.googleSheetLink.startsWith('http')) {
+                    activeLink = configData.googleSheetLink;
                     // تحديث التخزين المحلي بصمت
                     const savedConfig = localStorage.getItem('attendance_config');
                     if (savedConfig) {
@@ -322,13 +343,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
             throw new Error("NO_LINK");
         }
 
-        // 4. STRICT Server Check - Ensure Code Exists & Valid
-        // Removed 'no-cors' to allow reading status and body. 
-        // Apps Script MUST be deployed as "Anyone" for this to work.
+        // STRICT Server Check - Ensure Code Exists & Valid
         const response = await fetch(activeLink, {
           method: 'POST', 
-          // mode: 'cors', // Implicit default
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Use text/plain to avoid preflight issues
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ 
             action: 'saveAttendance', 
             ...newRecord, 
@@ -338,46 +356,40 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
           })
         });
 
-          // A) Check for 404 (Script Deleted/Wrong URL)
-          if (response.status === 404) {
-             throw new Error("SERVER_404");
-          }
+        // A) Check for 404 (Script Deleted/Wrong URL)
+        if (response.status === 404) {
+           throw new Error("SERVER_404");
+        }
 
-          if (!response.ok) {
-            throw new Error(`HTTP Error: ${response.status}`);
-          }
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
 
-          const responseText = await response.text();
-          
-          // B) Check content validity (Avoid HTML/Google Login pages)
-          if (!responseText || responseText.trim().startsWith("<")) {
-             throw new Error("INVALID_RESPONSE_FORMAT");
-          }
+        const responseText = await response.text();
+        
+        // B) Check content validity (Avoid HTML/Google Login pages)
+        if (!responseText || responseText.trim().startsWith("<")) {
+           throw new Error("INVALID_RESPONSE_FORMAT");
+        }
 
-          // C) Logic Validation
-          if (responseText.includes("Error") || responseText.includes("Security Alert")) {
-             // Logic Error (User deleted, Distance, etc.)
-             logAction(`فشل تسجيل ${type === 'check-in' ? 'حضور' : 'انصراف'} (خطأ منطقي)`, `السبب: ${responseText} | الإحداثيات: ${lat}, ${lng}`);
-             setStatus({ type: 'error', msg: responseText });
-             setIsVerifying(false);
-             return;
-          }
+        // C) Logic Validation
+        if (responseText.includes("Error") || responseText.includes("Security Alert")) {
+           logAction(`فشل تسجيل ${type === 'check-in' ? 'حضور' : 'انصراف'} (خطأ منطقي)`, `السبب: ${responseText} | الإحداثيات: ${lat}, ${lng}`);
+           setStatus({ type: 'error', msg: responseText });
+           setIsVerifying(false);
+           return;
+        }
 
-          // D) Code Freshness Check
-          // Only proceed if server specifically confirms recording.
-          // This prevents "Old Code" that might respond with success: true but do nothing, or different text.
-          if (!responseText.includes("Attendance Recorded")) {
-             throw new Error("OLD_OR_INVALID_CODE");
-          }
+        // D) Code Freshness Check
+        if (!responseText.includes("Attendance Recorded")) {
+           throw new Error("OLD_OR_INVALID_CODE");
+        }
         
         logAction(`تسجيل ${type === 'check-in' ? 'حضور' : 'انصراف'}`, `الفرع: ${branch.name}, المسافة: ${Math.round(distance)}م, الحالة: ${timeInfo.resultString}`);
-        // Only update local state if all checks passed
         setRecords(prev => [...prev, newRecord]);
         setStatus({ type: 'success', msg: `تم تسجيل ${type === 'check-in' ? 'الحضور' : 'الانصراف'} بنجاح. (${timeInfo.resultString})` });
         setReasonText('');
-        // Sync with cloud immediately after operation
         onRefresh();
-
     } catch (err: any) {
         console.error("Attendance Error:", err);
         
@@ -390,9 +402,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
         } else if (err.message === "INVALID_RESPONSE_FORMAT") {
             errorMsg = 'الرابط المسجل لا يؤدي إلى كود النظام. يرجى مراجعة المسؤول.';
         } else if (err.message === "OLD_OR_INVALID_CODE") {
-            errorMsg = 'كود السيرفر قديم أو غير متوافق. لن يتم تسجيل الحضور.';
+            errorMsg = 'كود السيرفر قديم أو غير متوافق. لن يتم تسجيل الحضور أو الانصراف.';
         } else if (err.message === "Failed to fetch") {
             errorMsg = 'تعذر الوصول للسيرفر. تأكد من اتصال الإنترنت أو صحة الرابط.';
+        } else if (err.message) {
+            errorMsg = `خطأ: ${err.message}`;
         }
 
         logAction(`فشل تسجيل ${type === 'check-in' ? 'حضور' : 'انصراف'}`, `السبب: ${errorMsg}${err.message ? ' | تفاصيل: ' + err.message : ''} | الإحداثيات: ${lat}, ${lng}`);
@@ -507,8 +521,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
       <div className="lg:col-span-2 space-y-6">
         <div className="bg-slate-800 rounded-3xl shadow-xl border border-slate-700 p-8 text-white relative overflow-hidden">
           {lastUpdated && (
-            <div className="absolute left-4 top-6 flex items-center gap-1 text-[8px] font-black text-slate-500 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 uppercase">
-              <Cloud size={10} /> Updated: {new Date(lastUpdated).toLocaleTimeString('en-US')}
+            <div className="absolute left-4 top-6 flex flex-col items-end gap-2">
+              <div className="flex items-center gap-1 text-[8px] font-black text-slate-500 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 uppercase">
+                <Cloud size={8} /> Updated: {new Date(lastUpdated).toLocaleTimeString('en-US')}
+              </div>
             </div>
           )}
           <div className="text-center mb-8 pt-4">
@@ -589,18 +605,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
               <div className="relative">
                 <select value={selectedBranchId} onChange={e => setSelectedBranchId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 text-white px-6 py-4 rounded-2xl font-bold outline-none cursor-pointer appearance-none shadow-inner focus:border-blue-500 transition-all text-right">
                   <option value="">-- اختر الفرع للتسجيل --</option>
-                  {branches.map(b => {
-                    const rawDefault = user.defaultBranchId || (user as any).defaultBranch || (user as any).branch || '';
-                    const defStr = String(rawDefault).trim().toLowerCase();
-                    const bNameStr = String(b.name).trim().toLowerCase();
-                    const bIdStr = String(b.id).trim().toLowerCase();
-                    const isDefault = defStr && (bIdStr === defStr || bNameStr === defStr || bNameStr.includes(defStr) || defStr.includes(bNameStr));
-                    return (
-                      <option key={b.id} value={b.id}>
-                        {b.name} {isDefault ? '(الأساسي)' : ''}
-                      </option>
-                    );
-                  })}
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} {isUserDefaultBranch(b, user) ? '(الفرع الأساسي)' : ''}
+                    </option>
+                  ))}
                 </select>
                 <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
               </div>
