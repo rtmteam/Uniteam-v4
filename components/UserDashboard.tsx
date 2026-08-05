@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Branch, AttendanceRecord, VisitPlan } from '../types';
 import { MapPin, Clock, CheckCircle, AlertCircle, RotateCcw, Cloud, FileText, Navigation, Calendar } from 'lucide-react';
-import { calculateDistance, getDeviceFingerprint, getEgyptTime, getRealNetworkTime } from '../utils';
+import { calculateDistance, getDeviceFingerprint, getEgyptTime, getRealNetworkTime, sanitizeUrl } from '../utils';
 
 interface UserDashboardProps {
   user: User;
@@ -283,15 +283,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
     };
 
     try {
-        let activeLink = googleSheetLink;
+        let activeLink = sanitizeUrl(googleSheetLink);
         
         // جلب أحدث رابط من السيرفر قبل التسجيل مباشرة لضمان عدم استخدام رابط قديم
         try {
             const configRes = await fetch('./server-config.json?t=' + Date.now());
             if (configRes.ok) {
                 const configData = await configRes.json();
-                if (configData && configData.googleSheetLink && configData.googleSheetLink.startsWith('http')) {
-                    activeLink = configData.googleSheetLink;
+                const fetchedLink = sanitizeUrl(configData?.googleSheetLink);
+                if (fetchedLink && fetchedLink.startsWith('http')) {
+                    activeLink = fetchedLink;
                     // تحديث التخزين المحلي بصمت
                     const savedConfig = localStorage.getItem('attendance_config');
                     if (savedConfig) {
