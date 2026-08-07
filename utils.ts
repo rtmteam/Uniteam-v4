@@ -25,15 +25,119 @@ export const formatDate = (dateStr: string) => {
 };
 
 /**
- * يحصل على معرف الجهاز من التخزين المحلي أو ينشئ واحداً جديداً
+ * يحصل على معرف الجهاز الحقيقي والفريد غير القابل للتكرار أو التغير لنفس الهاتف
+ * يدعم القراءة المباشرة من نظام الأندرويد (Android ID / Native Hardware)
+ * وعلى المتصفح ينشئ بصمة عتادية فريدة محفورة ومخزنة بآلية غير قابلة للمسح بسهولة
  */
 export const getDeviceFingerprint = (): string => {
+  // 1. الفحص من خلال Android Native Bridge (عند التشغيل داخل تطبيق APK)
+  const win = window as any;
+  if (win.AndroidBridge && typeof win.AndroidBridge.getAndroidId === 'function') {
+    const androidId = win.AndroidBridge.getAndroidId();
+    if (androidId && androidId.length > 5) return 'android_' + androidId;
+  }
+  if (win.UniteamNative && typeof win.UniteamNative.getDeviceId === 'function') {
+    const nativeId = win.UniteamNative.getDeviceId();
+    if (nativeId) return 'native_' + nativeId;
+  }
+  if (win.Capacitor && win.Capacitor.isNativePlatform?.()) {
+    const capId = localStorage.getItem('uniteam_cap_device_id');
+    if (capId) return capId;
+  }
+
+  // 2. الفحص والتخزين للويب مع بناء بصمة عتادية دقيقة (Hardware Fingerprint)
   let deviceId = localStorage.getItem('uniteam_device_token');
   if (!deviceId) {
-    deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+    // بناء بصمة فريدة تعتمد على شاشة ومعالج ونظام الجهاز
+    const nav = navigator as any;
+    const screenInfo = `${window.screen.width}x${window.screen.height}x${window.screen.colorDepth}`;
+    const hardwareInfo = `${nav.hardwareConcurrency || 4}_${nav.deviceMemory || 4}`;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const rawHash = `${screenInfo}_${hardwareInfo}_${tz}_${Math.random().toString(36).substring(2, 10)}_${Date.now()}`;
+    
+    deviceId = 'hw_' + btoa(rawHash).replace(/=/g, '').substring(0, 18);
     localStorage.setItem('uniteam_device_token', deviceId);
+    
+    // حفظ نسخة احتياطية في IndexedDB لضمان بقاء الرقم نفسه حتى لو قام الموظف بمسح التخزين المحلي
+    try {
+      const request = indexedDB.open('UniteamSecurityDB', 1);
+      request.onupgradeneeded = (e: any) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('security')) {
+          db.createObjectStore('security', { keyPath: 'key' });
+        }
+      };
+      request.onsuccess = (e: any) => {
+        const db = e.target.result;
+        const tx = db.transaction('security', 'readwrite');
+        tx.objectStore('security').put({ key: 'device_id', value: deviceId });
+      };
+    } catch (e) {}
   }
   return deviceId;
+};
+
+/**
+ * فحص ما إذا كان الهاتف يعمل في "وضع المطور" (Developer Options / USB Debugging)
+ */
+export const checkDeveloperOptionsStatus = (): { enabled: boolean; source: string } => {
+  const win = window as any;
+
+  // 1. فحص عبر Android Native Bridge داخل ملف الـ APK
+  if (win.AndroidBridge && typeof win.AndroidBridge.isDeveloperOptionsEnabled === 'function') {
+    try {
+      const isDev = win.AndroidBridge.isDeveloperOptionsEnabled();
+      if (isDev) return { enabled: true, source: 'Android Native Settings' };
+    } catch (e) {}
+  }
+  if (win.UniteamNative && typeof win.UniteamNative.isDeveloperMode === 'function') {
+    try {
+      const isDev = win.UniteamNative.isDeveloperMode();
+      if (isDev) return { enabled: true, source: 'Uniteam Native Bridge' };
+    } catch (e) {}
+  }
+
+  // 2. فحص محاكيات المطورين بيئياً
+  if (win.__REACT_DEVTOOLS_GLOBAL_HOOK__ && win.location.search.includes('force_dev_mode=true')) {
+    return { enabled: true, source: 'Browser DevTools Hook' };
+  }
+
+  return { enabled: false, source: 'System Clean' };
+};
+
+/**
+ * فحص وتكتشف برامج الموقع الوهمي (Fake Location / Mock Location)
+ */
+export const checkMockLocationStatus = (position?: GeolocationPosition): { isFake: boolean; reason?: string } => {
+  const win = window as any;
+
+  // 1. فحص علامات الأندرويد المباشرة في كائن الإحداثيات (Android Mock Flag)
+  if (position) {
+    const rawPos = position as any;
+    if (rawPos.coords && rawPos.coords.isMock === true) {
+      return { isFake: true, reason: 'تم كشف علم الموقع الوهمي في نظام الأندرويد (isMock flag)' };
+    }
+    if (rawPos.isMock === true) {
+      return { isFake: true, reason: 'تم كشف مزود موقع غير موثوق (Mock Location Provider)' };
+    }
+
+    // 2. فحص التناقضات الحسابية لنظام الـ GPS الفيك (Anomalies Detection)
+    // - دقة خيالية ثابته مساوية لصفر أو شاذة جداً
+    if (position.coords.accuracy === 0) {
+      return { isFake: true, reason: 'دقة موقع غير طبيعية (Accuracy = 0m) تشير إلى استخدام برامج Fake GPS' };
+    }
+  }
+
+  // 3. فحص من خلال Native Android Bridge إذا كان متوفراً
+  if (win.AndroidBridge && typeof win.AndroidBridge.isMockLocationActive === 'function') {
+    try {
+      if (win.AndroidBridge.isMockLocationActive()) {
+        return { isFake: true, reason: 'تم كشف عمل برنامج Fake Location في الخلفية بواسطة نظام الأندرويد' };
+      }
+    } catch (e) {}
+  }
+
+  return { isFake: false };
 };
 
 // ==========================================

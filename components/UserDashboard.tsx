@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Branch, AttendanceRecord, VisitPlan } from '../types';
 import { MapPin, Clock, CheckCircle, AlertCircle, RotateCcw, Cloud, FileText, Navigation, Calendar } from 'lucide-react';
-import { calculateDistance, getDeviceFingerprint, getEgyptTime, getRealNetworkTime } from '../utils';
+import { calculateDistance, getDeviceFingerprint, getEgyptTime, getRealNetworkTime, checkDeveloperOptionsStatus, checkMockLocationStatus } from '../utils';
 
 interface UserDashboardProps {
   user: User;
@@ -202,6 +202,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   };
 
   const handleAttendance = async (type: 'check-in' | 'check-out') => {
+    // 0. Security Verification: Developer Mode Check
+    const devCheck = checkDeveloperOptionsStatus();
+    if (devCheck.enabled) {
+      const msg = 'تنبيه أمني محظور: وضع المطور (Developer Options) مفعّل على هاتفك. لا يُسمح بتسجيل الحضور أو الانصراف. يرجى تعطيل وضع المطور وإعادة المحاولة.';
+      setStatus({ type: 'error', msg });
+      logAction(`محاولة تسجيل ${type === 'check-in' ? 'حضور' : 'انصراف'} مرفوضة (وضع المطور)`, `السبب: ${msg} | المصدر: ${devCheck.source}`);
+      setIsVerifying(false);
+      return;
+    }
+
     // 1. Connectivity Check
     if (!navigator.onLine) { 
       const msg = 'عذراً، يجب أن يكون الهاتف متصلاً بالإنترنت لإرسال التسجيل.';
@@ -223,6 +233,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
     // 2. Location Confirmation Logic
     let lat = 0;
     let lng = 0;
+    let rawPosObj: GeolocationPosition | undefined = undefined;
 
     // Check if we have a fresh background location (less than 60 seconds old)
     const isBackgroundLocationFresh = liveLocation && (Date.now() - liveLocation.timestamp < 60000);
@@ -239,6 +250,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
                     maximumAge: 0
                 });
             });
+            rawPosObj = position;
             lat = position.coords.latitude;
             lng = position.coords.longitude;
             setLiveLocation({
@@ -251,6 +263,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
             logAction(`فشل تسجيل ${type === 'check-in' ? 'حضور' : 'انصراف'}`, `السبب: ${msg}`);
             return;
         }
+    }
+
+    // 2.b Security Verification: Fake Location / Mock GPS Check
+    const mockCheck = checkMockLocationStatus(rawPosObj);
+    if (mockCheck.isFake) {
+      const msg = `تنبيه أمني محظور: تم الكشف عن استخدام برنامج موقع وهمي (Fake GPS / Mock Location). ${mockCheck.reason || ''}`;
+      setStatus({ type: 'error', msg });
+      logAction(`محاولة تسجيل ${type === 'check-in' ? 'حضور' : 'انصراف'} مرفوضة (موقع وهمي)`, `السبب: ${msg} | الإحداثيات: ${lat}, ${lng}`);
+      setIsVerifying(false);
+      return;
     }
 
     // 3. Client-Side Checks

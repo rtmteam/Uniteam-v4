@@ -5,8 +5,8 @@ import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import UserDashboard from './components/UserDashboard';
 import ReportsView from './components/ReportsView';
-import { ShieldCheck, User as UserIcon, Cloud, CloudOff, RefreshCw, FileSpreadsheet, Home, Download, Share, PlusSquare, X, Wifi, LogOut } from 'lucide-react';
-import { syncTimeWithServer } from './utils';
+import { ShieldCheck, User as UserIcon, Cloud, CloudOff, RefreshCw, FileSpreadsheet, Home, Download, Share, PlusSquare, X, Wifi, LogOut, ShieldAlert, AlertTriangle, Smartphone } from 'lucide-react';
+import { syncTimeWithServer, checkDeveloperOptionsStatus, getDeviceFingerprint } from './utils';
 
 // ==========================================
 // المصدر الرئيسي الوحيد لكلمة مرور المسؤول (Admin Password)
@@ -32,6 +32,19 @@ const App: React.FC = () => {
   const [isIos, setIsIos] = useState(false);
   const [isInStandaloneMode, setIsInStandaloneMode] = useState(false);
   const [showIosInstructions, setShowIosInstructions] = useState(false);
+
+  // Developer Options Security Detection
+  const [developerModeStatus, setDeveloperModeStatus] = useState<{ enabled: boolean; source: string }>({ enabled: false, source: '' });
+
+  useEffect(() => {
+    const checkDevMode = () => {
+      const status = checkDeveloperOptionsStatus();
+      setDeveloperModeStatus(status);
+    };
+    checkDevMode();
+    const interval = setInterval(checkDevMode, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   const [config, setConfig] = useState<AppConfig>(() => {
     const saved = localStorage.getItem('attendance_config');
@@ -509,6 +522,35 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+      {/* Developer Options Security Lock Screen Overlay */}
+      {developerModeStatus.enabled && currentUser?.role !== 'admin' && (
+        <div className="fixed inset-0 z-[999] bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+          <div className="bg-red-500/10 p-6 rounded-full border border-red-500/30 mb-6 animate-pulse">
+            <ShieldAlert size={64} className="text-red-500" />
+          </div>
+          <h2 className="text-2xl font-black text-red-500 mb-2">تم حظر فتح التطبيق</h2>
+          <div className="bg-red-950/50 border border-red-800/60 p-4 rounded-2xl max-w-md text-xs font-bold leading-relaxed text-red-200 mb-6">
+            <p className="mb-2">⚠️ تم اكتشاف تفعيل "وضع المطور" (Developer Options) أو "تصحيح USB" على هاتف الأندرويد.</p>
+            <p>لدواعي أمان النظام ومنع التلاعب بالحضور والانصراف، يتوجب عليك إيقاف وضع المطور أولاً لتتمكن من استخدام التطبيق.</p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl max-w-md text-right text-xs space-y-2 text-slate-300 mb-6">
+            <div className="font-black text-white border-b border-slate-800 pb-2 flex items-center gap-2">
+              <Smartphone size={16} className="text-blue-400" /> خطوات فتح التطبيق:
+            </div>
+            <p>1. افتح "إعدادات الهاتف" (Settings).</p>
+            <p>2. اذهب إلى "خيارات المطور" (Developer Options) أو "النظام".</p>
+            <p>3. قم بـ **إيقاف/تعطيل** خيارات المطور (Developer Options Off).</p>
+            <p>4. عد لتطبيق Uniteam واضغط إعادة الفحص بالأسفل.</p>
+          </div>
+          <button 
+            onClick={() => setDeveloperModeStatus(checkDeveloperOptionsStatus())}
+            className="bg-red-600 hover:bg-red-500 text-white font-black px-8 py-3.5 rounded-2xl text-sm shadow-xl transition-all cursor-pointer flex items-center gap-2"
+          >
+            <RefreshCw size={18} />
+            إعادة الفحص الآن
+          </button>
         </div>
       )}
     </div>
